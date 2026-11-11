@@ -1,8 +1,9 @@
+import { WordLookup } from './lookup';
 import {translateSubtitles} from '../core/messages';
 import {applyTranslationStyle, maskStyles} from '../core/styles';
-import { ControlTap, translationDirection } from './interaction';
+import { translationDirection } from './interaction';
 import { type Mode, type PublicSettings, sitePolicy } from '../core/settings';
-import { candidate, changed, collectBlocks, normalizedText, OWN_ATTRIBUTE, replaceText, restoreText, sourceNodes, splitText, type SourceText } from './dom';
+import { candidate, compactTranslation, changed, collectBlocks, normalizedText, OWN_ATTRIBUTE, replaceText, restoreText, sourceNodes, splitText, type SourceText } from './dom';
 import { TranslationPanel } from './panel';
 import { SubtitleTranslator } from './subtitles';
 type ResultState = {
@@ -22,7 +23,6 @@ interface Block {
     result: ResultState;
     output: HTMLElement | null;
     revision: number;
-    manual: boolean;
 }
 export class PageTranslator {
     private mode: Mode = 'original';
@@ -32,18 +32,17 @@ export class PageTranslator {
     private pending = new Set<Block>();
     private flushing = false;
     private scanTimer: number | null = null;
-    private hoverElement: HTMLElement | null = null;
     private stopped = false;
-    private readonly controlTap = new ControlTap();
-    private hoverTimer: number | null = null;
     private lastUrl = location.href;
     private readonly panel = new TranslationPanel();
     private readonly themeStyles = document.createElement('style');
+    private readonly lookup: WordLookup;
     private readonly subtitles: SubtitleTranslator;
     private readonly intersections: IntersectionObserver;
     private readonly mutations: MutationObserver;
     private readonly navigationTimer: number;
     constructor(private settings: PublicSettings, private readonly translate: (texts: string[]) => Promise<string[]>) {
+        this.lookup = new WordLookup(() => this.settings);
         this.themeStyles.setAttribute(OWN_ATTRIBUTE, 'styles');
         this.themeStyles.textContent = maskStyles;
         document.documentElement.append(this.themeStyles);
@@ -67,11 +66,7 @@ export class PageTranslator {
                 this.scheduleScan();
         });
         this.mutations.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'inert', 'aria-hidden', 'contenteditable', 'translate'] });
-        document.addEventListener('pointerover', this.pointerOver, true);
         document.addEventListener('keydown', this.keyDown, true);
-        document.addEventListener('keyup', this.keyUp, true);
-        window.addEventListener('blur', this.cancelHover);
-        document.addEventListener('mouseup', this.selectionEnd, true);
         this.navigationTimer = window.setInterval(() => {
             if (location.href !== this.lastUrl) {
                 this.lastUrl = location.href;
@@ -122,9 +117,8 @@ export class PageTranslator {
                 this.discard(block);
                 continue;
             }
-            // Site frameworks may remove only the appended translation.
-            if (block.result.kind === 'ready' && this.mode === 'bilingual' && !block.output?.isConnected)
-                this.render(block);
+            // A framework owns its children. Do not fight it by repeatedly reinserting
+            // output it removed. A source change or explicit mode switch renders again.
         }
         if (this.mode !== 'original')
             for (const element of collectBlocks(document.body))
@@ -138,13 +132,13 @@ export class PageTranslator {
         if (prior)
             return prior;
         const nodes = sourceNodes(element);
-        const block: Block = { element, nodes, source: normalizedText(nodes), result: { kind: 'idle' }, output: null, revision: 0, manual: false };
+        const block: Block = { element, nodes, source: normalizedText(nodes), result: { kind: 'idle' }, output: null, revision: 0 };
         this.blocks.set(element, block);
         this.intersections.observe(element);
         return block;
     }
     private enqueue(block: Block): void {
-        if (sitePolicy(location.hostname, this.settings) === 'blocked' || !block.source || block.result.kind !== 'idle' || (this.mode === 'original' && !block.manual))
+        if (sitePolicy(location.hostname, this.settings) === 'blocked' || !block.source || block.result.kind !== 'idle' || this.mode === 'original')
             return;
         this.pending.add(block);
         void this.flush();
@@ -186,7 +180,7 @@ export class PageTranslator {
                         const text = texts[index];
                         if (text === undefined || epoch !== this.epoch || revision !== block.revision || !block.element.isConnected || changed(block.nodes))
                             return;
-                        block.result = { kind: 'ready', text };
+                        block.result = { kind: 'ready', text: text.trim() === block.source.trim() ? '' : text };
                         this.render(block);
                     });
                 }
@@ -211,7 +205,15 @@ export class PageTranslator {
         output.lang = this.settings.target;
         output.dir = translationDirection(this.settings.target);
         applyTranslationStyle(output, this.settings.style);
-        block.element.append(output);
+        if (compactTranslation(block.element, block.source)) {
+            Object.assign(output.style, { display: 'inline', margin: '0', marginInlineStart: '0.5em', lineHeight: 'inherit', whiteSpace: 'inherit', overflowWrap: 'normal' });
+            // Keep the translation with the source label, inside any block/flex
+            // wrappers the site uses, rather than introducing a new layout item.
+            const label = [...block.nodes].reverse().find(node => /\p{L}/u.test(node.original))?.node.parentElement;
+            (label && block.element.contains(label) ? label : block.element).append(output);
+        } else {
+            block.element.append(output);
+        }
         block.output = output;
         return output;
     }
@@ -219,15 +221,15 @@ export class PageTranslator {
         block.output?.remove();
         block.output = null;
         restoreText(block.nodes);
-        if (block.result.kind !== 'ready')
+        if (block.result.kind !== 'ready' || !block.result.text)
             return;
-        if (this.mode === 'translated' && !block.manual)
+        if (this.mode === 'translated')
             replaceText(block.nodes, block.result.text);
-        else if (this.mode !== 'original' || block.manual)
+        else if (this.mode !== 'original')
             this.makeOutput(block).textContent = block.result.text;
     }
     private renderError(block: Block): void {
-        if (this.mode === 'original' && !block.manual)
+        if (this.mode === 'original')
             return;
         block.output?.remove();
         const output = this.makeOutput(block);
@@ -241,10 +243,10 @@ export class PageTranslator {
     setMode(mode: Mode): void {
         this.epoch++;
         this.panel.close();
+        this.lookup.close();
         this.pending.clear();
         this.mode = sitePolicy(location.hostname, this.settings) === 'blocked' ? 'original' : mode;
         for (const block of this.blocks.values()) {
-            block.manual = false;
             if (block.result.kind === 'pending' || block.result.kind === 'error')
                 block.result = { kind: 'idle' };
             this.render(block);
@@ -264,7 +266,6 @@ export class PageTranslator {
         translated: number;
     } { return { mode: this.mode, paragraphs: this.blocks.size, translated: Array.from(this.blocks.values()).filter(block => block.result.kind === 'ready').length }; }
     reset(settings: PublicSettings, mode: Mode = this.mode): void {
-        this.cancelHover();
         this.epoch++;
         this.pending.clear();
         for (const block of this.blocks.values())
@@ -283,68 +284,15 @@ export class PageTranslator {
             this.panel.show('選取內容超過 12,000 字元，請分段翻譯。');
             return;
         }
+        this.lookup.close();
         const epoch = this.epoch;
         await this.panel.translate(selected, texts => this.translateLong(texts, () => epoch === this.epoch && !this.stopped));
     }
-    private readonly pointerOver = (event: PointerEvent): void => {
-        const target = event.target;
-        if (!(target instanceof Element) || target.closest(`[${OWN_ATTRIBUTE}]`))
-            return;
-        const closest = target.closest(BLOCK_SELECTOR_FOR_HOVER);
-        this.hoverElement = closest instanceof HTMLElement ? closest : null;
-    };
-    private readonly cancelHover = (): void => {
-        this.controlTap.reset();
-        if (this.hoverTimer !== null)
-            clearTimeout(this.hoverTimer);
-        this.hoverTimer = null;
-    };
     private readonly keyDown = (event: KeyboardEvent): void => {
-        if (this.hoverTimer !== null)
-            clearTimeout(this.hoverTimer);
-        this.hoverTimer = null;
-        if (event.key === 'Escape')
-            this.panel.close();
-        this.controlTap.keyDown(event);
-    };
-    private readonly keyUp = (event: KeyboardEvent): void => {
-        if (!this.controlTap.keyUp(event.key) || !this.settings.hover || sitePolicy(location.hostname, this.settings) === 'blocked')
-            return;
-        if (event.target instanceof Element && event.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])'))
-            return;
-        this.hoverTimer = window.setTimeout(() => { this.hoverTimer = null; this.toggleHoveredParagraph(); }, 400);
-    };
-    private toggleHoveredParagraph(): void {
-        if (this.stopped || !this.settings.hover || sitePolicy(location.hostname, this.settings) === 'blocked')
-            return;
-        const element = this.hoverElement;
-        if (!element || !candidate(element))
-            return;
-        const block = this.track(element);
-        if (block.manual) {
-            block.manual = false;
-            block.revision++;
-            if (block.result.kind === 'pending')
-                block.result = { kind: 'idle' };
-            this.pending.delete(block);
-            this.render(block);
-            return;
-        }
-        block.manual = true;
-        if (block.result.kind === 'ready')
-            this.render(block);
-        else {
-            block.result = { kind: 'idle' };
-            this.enqueue(block);
-        }
-    }
-    ;
-    private readonly selectionEnd = (event: MouseEvent): void => {
-        if (!this.settings.selection || event.button !== 0 || event.target instanceof Element && event.target.closest(`[${OWN_ATTRIBUTE}],input,textarea,[contenteditable]:not([contenteditable="false"])`))
-            return;
-        window.setTimeout(() => { void this.selection(); }, 20);
+        if (event.key === 'Escape') this.panel.close();
     };
     dispose(): void {
+        this.lookup.dispose();
         this.stopped = true;
         this.epoch++;
         this.pending.clear();
@@ -358,12 +306,6 @@ export class PageTranslator {
         this.subtitles.stop();
         this.panel.close();
         this.themeStyles.remove();
-        document.removeEventListener('pointerover', this.pointerOver, true);
         document.removeEventListener('keydown', this.keyDown, true);
-        document.removeEventListener('keyup', this.keyUp, true);
-        window.removeEventListener('blur', this.cancelHover);
-        this.cancelHover();
-        document.removeEventListener('mouseup', this.selectionEnd, true);
     }
 }
-const BLOCK_SELECTOR_FOR_HOVER = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,figcaption,td,th,dt,dd,summary,div,section,article';

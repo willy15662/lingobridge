@@ -38,7 +38,7 @@ Content Script 呼叫 `translate(texts)`，只收到字串陣列。Popup/Options
 
 Content Script 採 leaf-block 擷取與已授權網站注入，背景由 worker 唯一管理 `storage.local`。
 
-新安裝預設採 plain 樣式並關閉懸停／選取。既有 style 不含 theme 時解析為 highlight，避免舊設定失去原本樣式。Ctrl 單鍵放開延遲 400ms，由 content 擁有 chord 追蹤與取消。
+新安裝預設採 plain 樣式並關閉懸停查詞。既有 style 不含 theme 時解析為 highlight，避免舊設定失去原本樣式。查詞由 `WordLookup` 追蹤游標與 Ctrl 按住狀態，停留 700ms 後顯示 28×28 圖標，點擊才請求詞意；短片語可先反白再以相同操作查詞。提前放開、快捷鍵組合、捲動或失焦會取消待顯示的圖標。反白文字使用 Chrome 的 `translate-selection` 命令，預設 Alt+Q，任何長度都走一般翻譯面板，不使用查詞服務。
 
 PDF 在文件頁以動態 ESM 載入本地 PDF.js，讀入使用者選取 bytes，設定本地 module worker、CMap 與標準字型。解析器關閉 eval、WASM、XFA 與 font-face，僅呼叫 getTextContent。文件頁仍透過既有 worker 發翻譯請求；輸出可列印 HTML，不偽裝成保留排版的原 PDF。
 

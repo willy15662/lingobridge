@@ -9,10 +9,11 @@
 | 原文／雙語／僅譯文 | 已實作 | 文字還原、節點保留單測、Content DOM E2E | 僅譯文模式不進行逐詞連結對齊；雙語模式保留原文連結 |
 | 語言自動偵測 | 已實作 Chrome i18n 與 Provider auto | TypeScript、Build | 依賴瀏覽器與目標翻譯服務之語言判斷 |
 | 段落擷取 | 已實作 leaf block 策略 | 文字分段單測、Content DOM E2E | 排除程式碼、數學公式、隱藏與可編輯區域 |
-| 選取翻譯 | 已實作 Shadow DOM 小視窗 | TypeScript、Build | 預設關閉，可於設定啟用 |
-| Ctrl 懸停翻譯 | 單獨 Ctrl keyup＋400ms，預設關閉 | modifier/chord 單測 | 排除 Ctrl+C／Ctrl+A 等組合鍵 |
+| 反白翻譯 | 反白後按 Alt+Q，一律一般翻譯，不顯示按鈕 | Selection E2E、MV3 E2E | 可於 Chrome 快捷鍵管理頁修改 |
+| 懸停查詞／片語 | 按住 Ctrl 停留 700ms 顯示 28×28 圖標，點擊查單字／短片語；詞性、詞意、雙語例句、語境與朗讀 | MV3 E2E、Lookup E2E、結構驗證單測 | 預設關閉；需要 OpenAI／Gemini；AI 解釋，非出版詞典 |
+| 單字本與複習 | 本機收藏、去重、搜尋、來源、翻面、間隔複習、移除、JSON 匯出 | 持久化／並行儲存／排程單測、worker 存取邊界、MV3 E2E | 不同步到其他裝置；DeepL 不生成詞意與例句 |
 | 自動翻譯與黑白名單 | 已實作，黑名單優先 | 規則單測 | 僅自動注入使用者已授予權限的網站 |
-| 快捷鍵 | Alt+A、Alt+S 側邊欄；選取翻譯可在 Chrome 管理頁設定 | Manifest 與 worker 命令邊界單測 | 若與系統或其他擴充套件衝突，可於 `chrome://extensions/shortcuts` 調整 |
+| 快捷鍵 | Alt+A、Alt+S 側邊欄、Alt+Q 反白翻譯 | Manifest 與 worker 命令邊界單測 | 若與系統或其他擴充套件衝突，可於 `chrome://extensions/shortcuts` 調整 |
 | 右鍵選單 | 頁面與選取文字 | TypeScript、Build、worker 邊界單測 | PDF 分頁點選右鍵翻譯會導向文件工作區 |
 | SPA／動態 DOM | MutationObserver、URL 變化檢查 | 過期／還原底層單測、Content DOM E2E | 動態載入段落與路由切換自動重設 |
 | 可見區域翻譯 | IntersectionObserver | TypeScript、Build、MV3 E2E | 捲動進入視窗範圍才排入翻譯批次 |

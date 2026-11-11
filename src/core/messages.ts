@@ -1,6 +1,13 @@
+import { lookupInputSchema, vocabularyDraftSchema } from './vocabulary';
 import { z } from 'zod';
 import { modeSchema, settingsSchema, publicSettingsSchema } from './settings';
 export const requestSchema = z.discriminatedUnion('kind', [
+    lookupInputSchema.extend({ kind: z.literal('dictionary.lookup') }),
+    z.object({ kind: z.literal('vocabulary.save'), draft: vocabularyDraftSchema }),
+    z.object({ kind: z.literal('vocabulary.open') }),
+    z.object({ kind: z.literal('vocabulary.list') }),
+    z.object({ kind: z.literal('vocabulary.remove'), id: z.string().startsWith('vocabulary:').max(2000) }),
+    z.object({ kind: z.literal('vocabulary.review'), id: z.string().startsWith('vocabulary:').max(2000), remembered: z.boolean() }),
     z.object({ kind: z.literal('settings.get') }), z.object({ kind: z.literal('settings.public') }), z.object({ kind: z.literal('settings.save'), settings: settingsSchema }),
     z.object({kind:z.literal('captions.info')}),
     z.object({ kind: z.literal('translate'), priority:z.enum(['normal','subtitle']).optional(), texts: z.array(z.string().max(12000)).min(1).max(40), source: z.string().min(2).max(30).optional(), target: z.string().min(2).max(30).optional() }),

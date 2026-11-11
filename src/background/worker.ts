@@ -1,3 +1,5 @@
+import { dictionaryPrompt, parseDictionary } from '../core/vocabulary';
+import { VocabularyStore } from './vocabulary';
 import {isPdfTab,workspaceForTab} from '../core/pdf-entry';
 import { defaults, settingsSchema, publicSettings, sitePolicy, type Settings } from '../core/settings';
 import { requestSchema, unwrapReply, type Request, type Reply } from '../core/messages';
@@ -7,6 +9,7 @@ import { TranslationError, endpointURL } from './providers';
 const ready = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
 async function settings(): Promise<Settings> { await ready; const value = await chrome.storage.local.get('settings'); return settingsSchema.safeParse(value.settings).data ?? structuredClone(defaults); }
 const engine = new TranslationEngine({ async load() { await ready; const data = await chrome.storage.local.get(['cache', 'stats']); return { cache: data.cache, stats: data.stats }; }, async save(cache, stats) { await chrome.storage.local.set({ cache, stats }); } });
+const vocabulary = new VocabularyStore();
 function trusted(sender: chrome.runtime.MessageSender): boolean { return sender.id === chrome.runtime.id && typeof sender.url === 'string' && sender.url.startsWith(chrome.runtime.getURL('')); }
 async function activePage(message: unknown) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -36,11 +39,39 @@ function registerSites() {
 }
 async function dispatch(request: Request, sender: chrome.runtime.MessageSender): Promise<unknown> {
     const isTrusted = trusted(sender);
-    if (!isTrusted && !['settings.public', 'translate', 'captions.info'].includes(request.kind))
+    if (!isTrusted && !['settings.public', 'translate', 'captions.info', 'dictionary.lookup', 'vocabulary.save', 'vocabulary.open'].includes(request.kind))
         throw new TranslationError('此操作僅允許擴充套件設定頁使用。');
     if (sender.id !== chrome.runtime.id)
         throw new TranslationError('無效來源。');
+    if (['dictionary.lookup', 'vocabulary.save', 'vocabulary.open'].includes(request.kind) && !isTrusted) {
+        const s = await settings();
+        if (!sender.url || !/^https?:/.test(sender.url) || sitePolicy(new URL(sender.url).hostname, publicSettings(s)) === 'blocked')
+            throw new TranslationError('此網站已停用查詞。');
+    }
     switch (request.kind) {
+        case 'dictionary.lookup': {
+            const s = await settings();
+            if (s.provider === 'deepl') throw new TranslationError('詞意與例句查詢需要 OpenAI 或 Gemini，請在設定切換服務。');
+            const config = s.providers[s.provider];
+            const url = endpointURL(config.endpoint);
+            if (!await chrome.permissions.contains({ origins: [url.origin + '/*'] }))
+                throw new TranslationError('請先到設定授權 API 網址。');
+            const configured = { ...s, providers: { ...s.providers, [s.provider]: { ...config, prompt: dictionaryPrompt(s.target) } } };
+            try {
+                const results = await engine.translate([JSON.stringify({ term: request.term, context: request.context })], configured, s.source, s.target, true, text => { parseDictionary(text); });
+                return parseDictionary(results[0] ?? '');
+            } catch (error) {
+                if (error instanceof TranslationError) throw error;
+                throw new TranslationError('查詞服務回傳格式不完整，請重試或更換模型。');
+            }
+        }
+        case 'vocabulary.save':
+            await ready;
+            return vocabulary.save(request.draft, (sender.url ?? '').slice(0, 2000));
+        case 'vocabulary.list': await ready; return vocabulary.list();
+        case 'vocabulary.review': await ready; return vocabulary.review(request.id, request.remembered);
+        case 'vocabulary.remove': await ready; await vocabulary.remove(request.id); return null;
+        case 'vocabulary.open': await chrome.tabs.create({ url: chrome.runtime.getURL('vocabulary.html') }); return null;
         case 'captions.info': {
             if(!sender.tab?.id||!sender.url||!/^https:\/\/(www\.|m\.)?youtube\.com\/watch(?:\?|$)/.test(sender.url))throw new TranslationError('不支援此字幕來源。');
             const results=await chrome.scripting.executeScript({target:{tabId:sender.tab.id},world:'MAIN',func:()=>{
@@ -99,6 +130,8 @@ async function dispatch(request: Request, sender: chrome.runtime.MessageSender):
             await engine.clear('stats');
             return null;
         case 'data.reset':
+            await ready;
+            await vocabulary.clear();
             await engine.clear('all');
             await chrome.storage.local.set({ settings: structuredClone(defaults) });
             await broadcastSettings(defaults,true);

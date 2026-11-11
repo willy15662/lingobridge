@@ -77,14 +77,14 @@ export class TranslationEngine {
         }
         await this.store.save(this.cache, this.stats);
     }
-    async translate(texts: string[], s: Settings, source = s.source, target = s.target, priority=false): Promise<string[]> {
+    async translate(texts: string[], s: Settings, source = s.source, target = s.target, priority=false, validate?: (text: string) => void): Promise<string[]> {
         const result:string[]=[];
         for(let index=0;index<texts.length;index+=s.batchSize){
-            result.push(...await this.translateBatch(texts.slice(index,index+s.batchSize),s,source,target,priority));
+            result.push(...await this.translateBatch(texts.slice(index,index+s.batchSize),s,source,target,priority,validate));
         }
         return result;
     }
-    private translateBatch(texts:string[],s:Settings,source:string,target:string,priority:boolean):Promise<string[]>{
+    private translateBatch(texts:string[],s:Settings,source:string,target:string,priority:boolean,validate?: (text: string) => void):Promise<string[]>{
         return this.serial(async () => {
             await this.load();
             const keys = await Promise.all(texts.map(t => cacheKey(s, source, target, t)));
@@ -99,6 +99,8 @@ export class TranslationEngine {
                     continue;
                 const cached = this.cache[key];
                 if (cached && Date.now() - cached.time < 30 * 86400000) {
+                    try { validate?.(cached.value); }
+                    catch { delete this.cache[key]; missing.set(key, { text, indexes: [n] }); continue; }
                     output[n] = cached.value;
                     this.stats.cacheHits++;
                 }
@@ -135,6 +137,9 @@ export class TranslationEngine {
                     }
                     if (!result || result.texts.length !== batch.length)
                         throw new TranslationError('翻譯結果數量不正確。');
+                    // Validate structured results before persisting them so retrying a
+                    // malformed dictionary response can make a fresh provider request.
+                    if (validate) result.texts.forEach(validate);
                     this.stats.inputTokens += result.inputTokens;
                     this.stats.outputTokens += result.outputTokens;
                     batch.forEach(([key, value], index) => {

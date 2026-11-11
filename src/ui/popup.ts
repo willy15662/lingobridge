@@ -26,7 +26,7 @@ function currentUrl(): URL {
         throw new Error('此頁面不允許擴充套件翻譯。請開啟一般網頁。');
     return url;
 }
-function readSettings(): Settings { return settingsSchema.parse({ ...settings, source: select('source').value, target: select('target').value, provider: providerIdSchema.parse(select('provider').value), mode: selectedMode }); }
+function readSettings(): Settings { return settingsSchema.parse({ ...settings, source: select('source').value, target: select('target').value, provider: providerIdSchema.parse(select('provider').value), hover: input('hover').checked, mode: selectedMode }); }
 async function applyMode(): Promise<void> {
     if (!ready || busy)
         return;
@@ -115,6 +115,7 @@ void (async () => {
     setSelect('target', settings.target);
     setSelect('provider', settings.provider);
     setMode(settings.mode);
+    input('hover').checked = settings.hover;
     if(pdfTab){
         element('site').textContent='PDF 文件';element('translate').textContent='開啟 PDF 翻譯';
         input('always').disabled=true;select('site-rule').disabled=true;
@@ -137,4 +138,19 @@ void (async () => {
 element('sidepanel').addEventListener('click',()=>{
  if(activeTab?.id===undefined){status('請先開啟瀏覽器分頁。',true);return;}
  void chrome.sidePanel.open({tabId:activeTab.id}).catch(report);
+});
+
+element('vocabulary').addEventListener('click', () => void rpc({ kind: 'vocabulary.open' }).catch(report));
+input('hover').addEventListener('change', () => {
+    void (async () => {
+        if (!ready || busy || activeTab?.id === undefined) throw new Error('請等設定載入後再試。');
+        currentUrl();
+        const next = readSettings();
+        if (next.hover && !await chrome.permissions.request({ origins: [endpointOrigin(next.providers[next.provider].endpoint)] }))
+            throw new Error('尚未授權查詞服務。');
+        await rpc({ kind: 'settings.save', settings: next });
+        settings = next;
+        await chrome.scripting.executeScript({ target: { tabId: activeTab.id }, files: ['content/content.js'] });
+        status(next.hover ? '已啟用，按住 Ctrl 停留後點小圖標查詞；反白翻譯按 Alt+Q。' : '已關閉懸停查詞。');
+    })().catch(error => { input('hover').checked = settings.hover; report(error); });
 });

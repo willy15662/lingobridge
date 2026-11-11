@@ -11,7 +11,7 @@ const {splitText,restoreText,replaceText,changed}=await import(pathToFileURL(joi
 await build({entryPoints:['src/content/controller.ts'],outfile:join(temp,'controller.mjs'),bundle:true,format:'esm',platform:'node'});
 const {PageTranslator}=await import(pathToFileURL(join(temp,'controller.mjs')).href);
 await build({entryPoints:['src/content/interaction.ts'],outfile:join(temp,'interaction.mjs'),bundle:true,format:'esm',platform:'node'});
-const {ControlTap,translationDirection}=await import(pathToFileURL(join(temp,'interaction.mjs')).href);
+const {translationDirection}=await import(pathToFileURL(join(temp,'interaction.mjs')).href);
 await rm(temp,{recursive:true,force:true});
 test('long non-space multilingual content respects provider request limit without breaking surrogate pairs',()=>{
  const input='閱讀😊'.repeat(3200);const chunks=splitText(input,6000);assert.equal(chunks.join(''),input);assert.ok(chunks.every(c=>c.length<=6000));assert.ok(chunks.every(c=>!/[\uD800-\uDBFF]$/.test(c)&&!(/^[\uDC00-\uDFFF]/.test(c))));
@@ -34,13 +34,6 @@ test('maximum configured batch size stays below worker aggregate character limit
  assert.equal(output.length,texts.length);assert.deepEqual(output.map(text=>text.replaceAll(' ','')),texts);
 });
 
-test('Ctrl translation gesture excludes Ctrl+C, Ctrl+A, and pre-held modifiers',()=>{
- const tap=new ControlTap();const key=key=>({key,repeat:false,altKey:false,metaKey:false,shiftKey:false});
- tap.keyDown(key('Control'));assert.equal(tap.keyUp('Control'),true);
- for(const letter of ['c','a']){tap.keyDown(key('Control'));tap.keyDown(key(letter));tap.keyUp(letter);assert.equal(tap.keyUp('Control'),false);}
- tap.keyDown({...key('Control'),shiftKey:true});assert.equal(tap.keyUp('Control'),false);
- tap.keyDown(key('Control'));tap.reset();assert.equal(tap.keyUp('Control'),false);
-});
 test('translated wrappers choose RTL for Arabic/Hebrew and respect explicit Latin scripts',()=>{
  assert.equal(translationDirection('ar-SA'),'rtl');assert.equal(translationDirection('he'),'rtl');assert.equal(translationDirection('fa'),'rtl');assert.equal(translationDirection('az-Arab'),'rtl');assert.equal(translationDirection('az-Latn'),'ltr');assert.equal(translationDirection('zh-TW'),'ltr');
 });

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "本機雙語閱讀",
-  "version": "0.2.3",
+  "version": "0.2.7",
   "description": "個人用雙語網頁、文件與字幕翻譯。自備 API Key，設定僅儲存於本機。",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -31,7 +31,10 @@
       "description": "切換原文與雙語"
     },
     "translate-selection": {
-      "description": "翻譯選取文字"
+      "description": "翻譯反白文字（一般翻譯）",
+      "suggested_key": {
+        "default": "Alt+Q"
+      }
     },
     "open-side-panel": {
       "description": "開啟文字翻譯側邊欄",
