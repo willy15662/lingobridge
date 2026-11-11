@@ -9,17 +9,17 @@ const profile=await mkdtemp(tmpdir()+'/translate-e2e-');const copy=await mkdtemp
 await cp('dist',copy,{recursive:true});
 // Test-only required host permission avoids interactive Chrome permission prompts in automation.
 const manifest=JSON.parse(await readFile(copy+'/manifest.json','utf8'));manifest.host_permissions=['http://127.0.0.1/*'];await writeFile(copy+'/manifest.json',JSON.stringify(manifest));
-let context;let server;let requests=0;let dictionaryRequests=0;
+let context;let server;let requests=0;let dictionaryRequests=0;let imageRequests=0;
 const dictionaryEntry={pronunciation:'/ˈpærəɡræf/',sourceLanguage:'en',senses:[{partOfSpeech:'n.',meaning:'段落',example:'Read the first paragraph.',translation:'讀第一段。'},{partOfSpeech:'n.',meaning:'短篇文字',example:'Write a short paragraph.',translation:'寫一小段文字。'}],contextualMeaning:'這裡指網頁上的一個文字段落。'};
 try{
  server=createServer(async(req,res)=>{
   try{
    if(req.url==='/v1/chat/completions'&&req.method==='POST'){
     let raw='';for await(const chunk of req)raw+=chunk;
-    const body=JSON.parse(raw);const inputs=JSON.parse(body.messages[1].content);requests++;
+    const body=JSON.parse(raw);const vision=Array.isArray(body.messages[1].content);const inputs=vision?[]:JSON.parse(body.messages[1].content);requests++;if(vision)imageRequests++;
     const dictionary=body.messages[0].content.includes('You are a language tutor.');
     if(dictionary)dictionaryRequests++;
-    res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(inputs.map(text=>dictionary?JSON.stringify(dictionaryEntry):'譯文 '+text))}}],usage:{prompt_tokens:4,completion_tokens:3}}));
+    res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({choices:[{message:{content:vision?JSON.stringify({regions:[{box:[100,100,400,900],source:'Hello reader',translation:'讀者你好'}]}):JSON.stringify(inputs.map(text=>dictionary?JSON.stringify(dictionaryEntry):'譯文 '+text))}}],usage:{prompt_tokens:4,completion_tokens:3}}));
    }else if(req.url==='/fixture.pdf'){
     res.writeHead(200,{'Content-Type':'application/pdf'});res.end(Buffer.from(pdfFixture()));
    }else if(req.url==='/article'){
@@ -128,8 +128,21 @@ try{
  await notebook.reload();await notebook.waitForFunction(()=>document.querySelector('#due')?.textContent==='0');
  await notebook.locator('.word-card').first().getByRole('button',{name:'移除',exact:true}).click();
  await notebook.waitForFunction(()=>document.querySelector('#total')?.textContent==='1');
+ // An authorized site loads image translation without a page-mode command.
+ await options.locator('#images').check();await options.locator('#status').evaluate(el=>el.textContent='');await options.locator('#save').click();
+ await options.waitForFunction(()=>document.querySelector('#status')?.textContent.includes('已儲存'));
+ const imagePage=await context.newPage();await imagePage.goto(base+'/article');
+ await imagePage.evaluate(()=>{
+  const canvas=document.createElement('canvas');canvas.width=400;canvas.height=300;const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,400,300);ctx.fillStyle='black';ctx.font='30px sans-serif';ctx.fillText('Hello reader',40,80);
+  const img=new Image();img.id='auto-image';img.src=canvas.toDataURL();document.body.append(img);
+ });
+ await imagePage.waitForFunction(()=>document.querySelector('[data-local-translate="image"]')?.shadowRoot?.textContent.includes('讀者你好'));
+ assert.equal(imageRequests,1);
+ assert.equal(await imagePage.locator('[data-local-translate="result"]').count(),0,'image auto-translation leaves page text alone');
+ await imagePage.locator('[data-local-translate="image"]').getByRole('button',{name:'顯示原圖',exact:true}).click();
+ assert.equal(await imagePage.locator('[data-local-translate="image"] .region').count(),0);
  await mkdir('evidence/screenshots',{recursive:true});await options.screenshot({path:'evidence/screenshots/options.png',fullPage:true});
- await writeFile('evidence/e2e-result.json',JSON.stringify({status:'passed',liveProvider:false,sidebarPage:true,nativeSidepanelGesture:false,pdfDownloadTranslateExport:true,hoverLookup:true,phraseLookup:true,vocabularyPersistenceAndReview:true},null,2));
- console.log('PASS actual MV3 worker + provider fixture + content bilingual/dynamic/restore + settings UI + PDF download/translation/export + hover/phrase dictionary + saved vocabulary/review');
+ await writeFile('evidence/e2e-result.json',JSON.stringify({status:'passed',liveProvider:false,sidebarPage:true,nativeSidepanelGesture:false,pdfDownloadTranslateExport:true,hoverLookup:true,phraseLookup:true,vocabularyPersistenceAndReview:true,automaticImageTranslation:true},null,2));
+ console.log('PASS actual MV3 worker + provider fixture + content bilingual/dynamic/restore + settings UI + PDF download/translation/export + hover/phrase dictionary + saved vocabulary/review + automatically injected image OCR');
 }catch(error){await mkdir('evidence',{recursive:true});await writeFile('evidence/e2e-result.json',JSON.stringify({status:'failed-or-blocked',message:error instanceof Error?error.message:String(error),liveProvider:false},null,2));throw error;}
 finally{await context?.close();if(server?.listening)await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});await rm(profile,{recursive:true,force:true});await rm(copy,{recursive:true,force:true});}

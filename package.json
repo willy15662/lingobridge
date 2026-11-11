@@ -1,6 +1,6 @@
 {
   "name": "local-bilingual-reading",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -10,6 +10,7 @@
     "test": "node scripts/test.mjs",
     "test:e2e": "node tests/e2e.mjs",
     "check": "npm run typecheck && npm run build && npm test && node scripts/verify-dist.mjs",
+    "test:media:e2e": "node tests/media.e2e.mjs",
     "test:selection:e2e": "node tests/selection.e2e.mjs",
     "test:layout:e2e": "node tests/layout.e2e.mjs",
     "test:lookup:e2e": "node tests/lookup.e2e.mjs",

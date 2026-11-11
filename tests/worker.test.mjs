@@ -53,3 +53,12 @@ test('content can save its own lookup but cannot list, review or delete the voca
  assert.equal((await send({kind:'vocabulary.remove',id:saved.data.id})).ok,true);
  assert.equal((await send({kind:'vocabulary.list'})).data.length,0);
 });
+
+test('automatic image messages require an enabled setting, image data, origin permissions and a nonblocked site',async()=>{
+ const content=message=>new Promise(resolve=>listener(message,{id:'test-extension',url:'https://allowed.example/article',tab:{id:1}},resolve));
+ assert.equal((await content({kind:'image.read',url:'https://images.example/comic.png'})).ok,false);
+ const settings=(await send({kind:'settings.get'})).data;settings.images=true;await send({kind:'settings.save',settings});
+ const denied=await content({kind:'image.read',url:'https://images.example/comic.png'});assert.equal(denied.ok,false);assert.match(denied.error,/授權/);
+ assert.equal((await content({kind:'image.translate',data:'data:text/html;base64,aA=='})).ok,false);
+ assert.equal((await send({kind:'image.translate',data:'data:image/png;base64,aA=='},false)).ok,false);
+});

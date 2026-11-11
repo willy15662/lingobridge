@@ -110,3 +110,30 @@ export function createProvider(id: ProviderId): TranslationProvider {
             }
         } };
 }
+
+/** Vision input uses the same configured endpoint and model as text translation. */
+export async function translateImage(data: string, settings: import('../core/settings').Settings): Promise<{ result: import('../core/images').ImageResult; inputTokens: number; outputTokens: number }> {
+    const { imagePrompt, parseImageResult } = await import('../core/images');
+    if (settings.provider === 'deepl') throw new TranslationError('圖片／漫畫翻譯需要支援圖片的 OpenAI 或 Gemini 模型。');
+    const config = settings.providers[settings.provider];
+    if (!config.apiKey.trim()) throw new TranslationError('請先設定 API Key。');
+    const url = endpointURL(config.endpoint);
+    const instruction = imagePrompt(settings.source, settings.target);
+    if (settings.provider === 'openai') {
+        const raw = await post(url, { Authorization: `Bearer ${config.apiKey}` }, {
+            model: config.model, messages: [{ role: 'system', content: instruction }, { role: 'user', content: [{ type: 'image_url', image_url: { url: data, detail: 'high' } }] }], temperature: 0.2,
+        });
+        const parsed = openaiResponse.parse(raw);
+        return { result: parseImageResult(parsed.choices[0]?.message.content ?? ''), inputTokens: parsed.usage?.prompt_tokens ?? 0, outputTokens: parsed.usage?.completion_tokens ?? 0 };
+    }
+    const comma = data.indexOf(',');
+    const mimeType = data.slice(5, data.indexOf(';'));
+    url.pathname = url.pathname.replace(/\/$/, '') + `/models/${encodeURIComponent(config.model)}:generateContent`;
+    const raw = await post(url, { 'x-goog-api-key': config.apiKey }, {
+        systemInstruction: { parts: [{ text: instruction }] },
+        contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: data.slice(comma + 1) } }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+    });
+    const parsed = geminiResponse.parse(raw);
+    return { result: parseImageResult(parsed.candidates[0]?.content.parts.map(part => part.text ?? '').join('') ?? ''), inputTokens: parsed.usageMetadata?.promptTokenCount ?? 0, outputTokens: parsed.usageMetadata?.candidatesTokenCount ?? 0 };
+}

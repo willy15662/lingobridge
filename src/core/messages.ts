@@ -1,7 +1,10 @@
+import { imageDataSchema } from './images';
 import { lookupInputSchema, vocabularyDraftSchema } from './vocabulary';
 import { z } from 'zod';
 import { modeSchema, settingsSchema, publicSettingsSchema } from './settings';
 export const requestSchema = z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('image.read'), url: z.string().url().max(16000) }),
+    z.object({ kind: z.literal('image.translate'), data: imageDataSchema }),
     lookupInputSchema.extend({ kind: z.literal('dictionary.lookup') }),
     z.object({ kind: z.literal('vocabulary.save'), draft: vocabularyDraftSchema }),
     z.object({ kind: z.literal('vocabulary.open') }),

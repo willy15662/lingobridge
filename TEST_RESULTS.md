@@ -4,7 +4,7 @@
 
 ## 單元與邊界測試（`npm run check`）
 
-`npm run check` 完成 TypeScript strict 檢查、七個入口的 esbuild 打包、83 項單元／邊界測試、Manifest V3 與產物資源檢查。
+`npm run check` 完成 TypeScript strict 檢查、七個入口的 esbuild 打包、89 項單元／邊界測試、Manifest V3 與產物資源檢查。
 
 | 測試檔 | 通過數 | 實際驗證內容 |
 | --- | ---: | --- |
@@ -14,12 +14,14 @@
 | documents.test.mjs | 11 | ZIP、CRC、DEFLATE、拒絕不合法壓縮檔、字幕、TXT／Markdown、URL 過濾、批次上限 |
 | pdf-entry.test.mjs | 4 | 本機／遠端 PDF 路由、MIME 探測、下載安全設定（省略 Cookie／禁 Redirect）、非法網址與非 PDF 回應 |
 | reading-tools.test.mjs | 6 | 側邊欄分批、取消、輸入與結果驗證、九種樣式、遮罩鍵盤入口、訊息錯誤傳遞 |
-| subtitles.test.mjs | 5 | 舊 session 隔離、fallback 不累積請求、時間軸播放／快轉與停止 |
+| subtitles.test.mjs | 6 | 舊 session 隔離、fallback 不累積請求、時間軸播放／快轉與停止 |
 | caption-timeline.test.mjs | 6 | JSON3、時間窗上限、同源 URL／影片 ID、下載與錯誤邊界 |
 | ui.test.mjs | 10 | 匯出移除 Key、同 origin 匯入保留 Key、跨 origin 清 Key、非法設定、端點與協定驗證、網站規則更新 |
-| worker.test.mjs | 12 | storage 存取層級、來源驗證、秘密隔離、非法訊息、API 網域權限、公開設定廣播、Alt+S 開啟、YouTube 字幕 metadata 邊界、PDF 導流 |
+| worker.test.mjs | 13 | storage 存取層級、來源驗證、秘密隔離、非法訊息、API 網域權限、公開設定廣播、Alt+S 開啟、YouTube 字幕 metadata 邊界、PDF 導流 |
 
 | vocabulary.test.mjs | 4 | 查詞回應格式、並行收藏去重、重新建立 store 保留進度、複習排程、清除邊界、無效結果不進快取 |
+
+| images.test.mjs | 4 | 圖片設定遷移、payload／座標邊界、兩種 vision 請求、來源授權／MIME／大小、結構快取與 Token 統計 |
 
 Provider 測試使用模擬 HTTP 回應，worker 測試使用 Chrome API 邊界模擬。測試過程不使用任何真實服務金鑰，亦不向外發送網路請求。
 
@@ -58,6 +60,12 @@ Provider 測試使用模擬 HTTP 回應，worker 測試使用 Chrome API 邊界�
 此版取代 0.2.6 的反白按鈕。Ctrl 停留只顯示 28×28 查詞圖標，點擊才發出詞典請求；短片語可先反白，再 Ctrl 停留於反白範圍內查詞。反白文字則透過 Alt+Q 命令走一般翻譯，即使只有一個單字也不查詞。
 
 Lookup E2E 驗證圖標尺寸、點擊前零請求與提前放開取消。Selection E2E 驗證反白單字／片語／段落都不自動顯示圖標或請求，執行選取命令後一律呼叫一般翻譯。MV3 E2E 驗證實際擴充套件的兩條服務流程及查詞收藏。
+
+## 0.3.0 獨立媒體翻譯
+
+`npm run test:media:e2e` 使用真實 Chromium captureStream 影片與原生 TextTrack，驗證播放即自動翻譯、原生字幕關閉時 hidden 載入與停止後還原、暫停／恢復、頁面原文模式不停止字幕、影片頁不處理縮圖、獨立手動頁面翻譯。圖片部分使用真實 canvas 像素生成長圖，驗證可見 tile 才送出、下方圖片不送出、原圖切換、捲動後 tile 重用與關閉清除。
+
+`npm run test:e2e` 增加實際 MV3 自動注入、image RPC、視覺 API fixture、結構結果與圖片疊層，並確認沒有產生頁面文字譯文。`images.test.mjs` 的 Provider 回應為 fixture，沒有驗證線上模型的 OCR 或定位準確度。圖片畫面：`evidence/media-image-overlay.png`。
 
 ## 建置與發行套件驗證
 

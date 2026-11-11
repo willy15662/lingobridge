@@ -29,7 +29,7 @@ if (!globalThis.__localTranslateContentInstalled) {
                 await controller.selection(action.text);
             else {
                 const settings = publicSchema.parse(await rpc({ kind: 'settings.public' }));
-                controller.reset(settings, action.kind === 'page.mode' ? action.mode : controller.getMode() === 'original' ? 'bilingual' : 'original');
+                controller.reset(settings, action.kind === 'page.mode' ? action.mode : controller.getMode() === 'original' ? 'bilingual' : 'original', true);
             }
             reply({ ok: true, data: controller.status() });
         }).catch(() => reply({ ok: false, error: '無法翻譯此頁面，請重新載入頁面並檢查設定。' }));

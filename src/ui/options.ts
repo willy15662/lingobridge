@@ -73,7 +73,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-provide
 function showSettings(value: Settings): void {
     for (const id of ['source', 'target', 'mode', 'provider'] satisfies Array<keyof Settings>)
         setSelect(id, value[id]);
-    for (const id of ['autoTranslate', 'hover', 'subtitles'] satisfies Array<keyof Settings>)
+    for (const id of ['autoTranslate', 'hover', 'subtitles', 'images'] satisfies Array<keyof Settings>)
         input(id).checked = value[id];
     for (const id of providerIds) {
         const provider = value.providers[id];
@@ -95,7 +95,7 @@ function showSettings(value: Settings): void {
 }
 function rules(id: string): string[] { return [...new Set(textarea(id).value.split(/\r?\n/).map(s => s.trim().toLowerCase()).filter(Boolean))]; }
 function readSettings(): Settings {
-    const draft: unknown = { ...settings, source: select('source').value, target: select('target').value, mode: select('mode').value, provider: select('provider').value, autoTranslate: input('autoTranslate').checked, hover: input('hover').checked, subtitles: input('subtitles').checked, style: { theme: select('theme').value, color: input('color').value, background: input('background').value, fontSize: Number(input('fontSize').value), border: input('border').checked }, allowSites: rules('allowSites'), blockSites: rules('blockSites'), requestsPerMinute: Number(input('requestsPerMinute').value), batchSize: Number(input('batchSize').value), providers: Object.fromEntries(providerIds.map(id => [id, { apiKey: input(`${id}-key`).value.trim(), endpoint: input(`${id}-endpoint`).value.trim(), model: input(`${id}-model`).value.trim(), prompt: textarea(`${id}-prompt`).value }])) };
+    const draft: unknown = { ...settings, source: select('source').value, target: select('target').value, mode: select('mode').value, provider: select('provider').value, autoTranslate: input('autoTranslate').checked, hover: input('hover').checked, subtitles: input('subtitles').checked, images: input('images').checked, style: { theme: select('theme').value, color: input('color').value, background: input('background').value, fontSize: Number(input('fontSize').value), border: input('border').checked }, allowSites: rules('allowSites'), blockSites: rules('blockSites'), requestsPerMinute: Number(input('requestsPerMinute').value), batchSize: Number(input('batchSize').value), providers: Object.fromEntries(providerIds.map(id => [id, { apiKey: input(`${id}-key`).value.trim(), endpoint: input(`${id}-endpoint`).value.trim(), model: input(`${id}-model`).value.trim(), prompt: textarea(`${id}-prompt`).value }])) };
     const parsed = settingsSchema.safeParse(draft);
     if (!parsed.success)
         throw new Error(`設定格式錯誤：${parsed.error.issues.map(i => i.path.join('.')).join('、')}。請檢查欄位範圍。`);
@@ -189,3 +189,10 @@ element('reset').addEventListener('click', () => {
 element('shortcuts').addEventListener('click', () => void chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }).catch(report));
 element('documents').addEventListener('click', () => void chrome.tabs.create({ url: chrome.runtime.getURL('documents.html') }).catch(report));
 void (async () => { settings = settingsSchema.parse(await rpc({ kind: 'settings.get' })); showSettings(settings); ready = true; await refreshStats(); })().catch(report);
+
+element('grant-media').addEventListener('click', () => {
+    void chrome.permissions.request({ origins: ['https://*/*', 'http://*/*'] }).then(granted => {
+        if (!granted) throw new Error('尚未授權媒體自動翻譯。');
+        status('已授權媒體自動翻譯。請儲存設定，並重新整理已開啟的影片或圖片頁面。');
+    }).catch(report);
+});

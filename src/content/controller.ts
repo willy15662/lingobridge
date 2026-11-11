@@ -1,3 +1,4 @@
+import { ImageTranslator } from './images';
 import { WordLookup } from './lookup';
 import {translateSubtitles} from '../core/messages';
 import {applyTranslationStyle, maskStyles} from '../core/styles';
@@ -33,20 +34,23 @@ export class PageTranslator {
     private flushing = false;
     private scanTimer: number | null = null;
     private stopped = false;
+    private explicitPage = false;
     private lastUrl = location.href;
     private readonly panel = new TranslationPanel();
     private readonly themeStyles = document.createElement('style');
     private readonly lookup: WordLookup;
     private readonly subtitles: SubtitleTranslator;
+    private readonly images: ImageTranslator;
     private readonly intersections: IntersectionObserver;
     private readonly mutations: MutationObserver;
     private readonly navigationTimer: number;
-    constructor(private settings: PublicSettings, private readonly translate: (texts: string[]) => Promise<string[]>) {
+    constructor(private settings: PublicSettings, private readonly translate: (texts: string[]) => Promise<string[]>, subtitleTranslate = translateSubtitles) {
         this.lookup = new WordLookup(() => this.settings);
         this.themeStyles.setAttribute(OWN_ATTRIBUTE, 'styles');
         this.themeStyles.textContent = maskStyles;
         document.documentElement.append(this.themeStyles);
-        this.subtitles = new SubtitleTranslator(translateSubtitles);
+        this.subtitles = new SubtitleTranslator(subtitleTranslate);
+        this.images = new ImageTranslator(() => this.settings);
         this.intersections = new IntersectionObserver(entries => {
             for (const entry of entries) {
                 if (!(entry.target instanceof HTMLElement))
@@ -62,19 +66,30 @@ export class PageTranslator {
             }
         }, { rootMargin: '200px' });
         this.mutations = new MutationObserver(records => {
-            if (records.some(record => !this.ownedMutation(record)))
-                this.scheduleScan();
+            if (!this.explicitPage && this.mode !== 'original' && this.mediaPage()) this.setMode('original', false);
+            if (this.mode !== 'original' && records.some(record => !this.ownedMutation(record))) this.scheduleScan();
         });
         this.mutations.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'inert', 'aria-hidden', 'contenteditable', 'translate'] });
         document.addEventListener('keydown', this.keyDown, true);
         this.navigationTimer = window.setInterval(() => {
             if (location.href !== this.lastUrl) {
                 this.lastUrl = location.href;
-                this.reset(this.settings);
+                this.subtitles.stop(); this.images.stop();
+                this.reset(this.settings, 'original', false);
+                if (sitePolicy(location.hostname, this.settings) === 'auto' && !this.mediaPage()) this.setMode(this.settings.mode, false);
             }
         }, 750);
-        if (sitePolicy(location.hostname, settings) === 'auto')
-            this.setMode(settings.mode);
+        this.syncSubtitles();
+        if (sitePolicy(location.hostname, settings) === 'auto' && !this.mediaPage()) this.setMode(settings.mode, false);
+    }
+    private mediaPage(): boolean {
+        return this.settings.images || !!document.querySelector('video') || /(^|\.)youtube\.com$/.test(location.hostname) && location.pathname === '/watch';
+    }
+    private syncSubtitles(): void {
+        if (this.settings.subtitles && sitePolicy(location.hostname, this.settings) !== 'blocked') this.subtitles.start();
+        else this.subtitles.stop();
+        if (this.settings.images && sitePolicy(location.hostname, this.settings) !== 'blocked') this.images.start();
+        else this.images.stop();
     }
     private ownedMutation(record: MutationRecord): boolean {
         const element = record.target instanceof Element ? record.target : record.target.parentElement;
@@ -240,24 +255,19 @@ export class PageTranslator {
         retry.onclick = event => { event.preventDefault(); event.stopPropagation(); output.remove(); block.output = null; block.result = { kind: 'idle' }; this.enqueue(block); };
         output.append(retry);
     }
-    setMode(mode: Mode): void {
+    setMode(mode: Mode, explicit = true): void {
+        this.explicitPage = explicit;
         this.epoch++;
         this.panel.close();
         this.lookup.close();
         this.pending.clear();
-        this.mode = sitePolicy(location.hostname, this.settings) === 'blocked' ? 'original' : mode;
+        this.mode = sitePolicy(location.hostname, this.settings) === 'blocked' || !explicit && this.mediaPage() ? 'original' : mode;
         for (const block of this.blocks.values()) {
             if (block.result.kind === 'pending' || block.result.kind === 'error')
                 block.result = { kind: 'idle' };
             this.render(block);
         }
-        if (this.mode !== 'original') {
-            this.scan();
-            if (this.settings.subtitles)
-                this.subtitles.start();
-        }
-        else
-            this.subtitles.stop();
+        if (this.mode !== 'original') this.scan();
     }
     getMode(): Mode { return this.mode; }
     status(): {
@@ -265,14 +275,16 @@ export class PageTranslator {
         paragraphs: number;
         translated: number;
     } { return { mode: this.mode, paragraphs: this.blocks.size, translated: Array.from(this.blocks.values()).filter(block => block.result.kind === 'ready').length }; }
-    reset(settings: PublicSettings, mode: Mode = this.mode): void {
+    reset(settings: PublicSettings, mode: Mode = this.mode, explicit = this.explicitPage): void {
+        const restartMedia = this.settings.source !== settings.source || this.settings.target !== settings.target || this.settings.provider !== settings.provider || this.settings.subtitles !== settings.subtitles || this.settings.images !== settings.images || JSON.stringify(this.settings.blockSites) !== JSON.stringify(settings.blockSites);
         this.epoch++;
         this.pending.clear();
         for (const block of this.blocks.values())
             this.discard(block);
         this.settings = settings;
-        this.subtitles.stop();
-        this.setMode(mode);
+        if (restartMedia) { this.subtitles.stop(); this.images.stop(); }
+        this.syncSubtitles();
+        this.setMode(mode, explicit);
     }
     async selection(text?: string): Promise<void> {
         if (this.stopped || sitePolicy(location.hostname, this.settings) === 'blocked')
@@ -304,6 +316,7 @@ export class PageTranslator {
         for (const block of this.blocks.values())
             this.discard(block);
         this.subtitles.stop();
+        this.images.stop();
         this.panel.close();
         this.themeStyles.remove();
         document.removeEventListener('keydown', this.keyDown, true);

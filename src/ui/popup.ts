@@ -26,7 +26,7 @@ function currentUrl(): URL {
         throw new Error('此頁面不允許擴充套件翻譯。請開啟一般網頁。');
     return url;
 }
-function readSettings(): Settings { return settingsSchema.parse({ ...settings, source: select('source').value, target: select('target').value, provider: providerIdSchema.parse(select('provider').value), hover: input('hover').checked, mode: selectedMode }); }
+function readSettings(): Settings { return settingsSchema.parse({ ...settings, source: select('source').value, target: select('target').value, provider: providerIdSchema.parse(select('provider').value), hover: input('hover').checked, subtitles: input('subtitles').checked, images: input('images').checked, mode: selectedMode }); }
 async function applyMode(): Promise<void> {
     if (!ready || busy)
         return;
@@ -116,6 +116,8 @@ void (async () => {
     setSelect('provider', settings.provider);
     setMode(settings.mode);
     input('hover').checked = settings.hover;
+    input('subtitles').checked = settings.subtitles;
+    input('images').checked = settings.images;
     if(pdfTab){
         element('site').textContent='PDF 文件';element('translate').textContent='開啟 PDF 翻譯';
         input('always').disabled=true;select('site-rule').disabled=true;
@@ -154,3 +156,17 @@ input('hover').addEventListener('change', () => {
         status(next.hover ? '已啟用，按住 Ctrl 停留後點小圖標查詞；反白翻譯按 Alt+Q。' : '已關閉懸停查詞。');
     })().catch(error => { input('hover').checked = settings.hover; report(error); });
 });
+
+async function enableMedia(): Promise<void> {
+    if (!ready || busy || activeTab?.id === undefined) throw new Error('請等設定載入後再試。');
+    const next = readSettings(); const url = currentUrl();
+    if (next.images && next.provider === 'deepl') throw new Error('圖片翻譯需要支援圖片的 OpenAI 或 Gemini 模型。');
+    if (!await chrome.permissions.request({ origins: [url.origin + '/*', endpointOrigin(next.providers[next.provider].endpoint)] })) throw new Error('尚未授權此網站的媒體翻譯。');
+    await rpc({ kind: 'settings.save', settings: next }); settings = next;
+    await chrome.scripting.executeScript({ target: { tabId: activeTab.id }, files: ['content/content.js'] });
+    status('媒體翻譯設定已更新；整頁文字仍需按「翻譯此頁」。圖片來源若尚未授權，請到設定授權媒體自動翻譯。');
+}
+for (const id of ['subtitles', 'images']) input(id).addEventListener('change', () => {
+    void enableMedia().catch(error => { input('subtitles').checked = settings.subtitles; input('images').checked = settings.images; report(error); });
+});
+element('grant-media').addEventListener('click', () => void enableMedia().catch(report));

@@ -73,3 +73,11 @@ worker 翻譯訊息可指定 subtitle 優先級。engine 保留單一 writer、�
 文件頁必須經按鈕操作才能請求指定 origin 的 optional host permission 並下載 PDF。`remote-pdf.ts` 禁止帳密 URL、Cookie 與 redirects，限制下載 30 秒／50 MB，檢查 PDF header，產生 File 後沿用 `loadDocument`。網路下載不呼叫翻譯 Provider。文件頁 CSP `connect-src` 允許 HTTP／HTTPS，供明確授權下載使用；script、style、image、frame、object 的限制保留，匯入 HTML 不執行腳本與主動資源。未新增 manifest 權限。
 
 下載與檔案選取共用 generation：選擇新檔案後舊下載不可覆蓋預覽。Chrome 原生 PDF 閱讀器的選取文字無法由此方案直接翻譯，此功能不支援。
+
+## 媒體翻譯獨立生命週期
+
+`PageTranslator.mode` 只控制頁面文字。`SubtitleTranslator` 依字幕設定獨立啟動，偵測播放後載入字幕；暫停時不預讀。影片／媒體頁不使用整頁自動翻譯規則；使用者明確按下頁面翻譯後才開始掃描文字。文字原文模式下，DOM 變動不再引起全頁擷取。
+
+`ImageTranslator` 只觀察圖片與可見區域。每張長圖按最多 1800 像素高度切塊，編碼前再次確認可見性；逐塊送入 `image.translate`，成功後以純文字與標準化座標疊加。原圖 DOM 不改寫，無字圖片不顯示浮層。影片頁不啟動自動 OCR。
+
+跨來源像素讀取由 worker 的 `image.read` 驗證來源權限、圖片 MIME、8 MB 上限與無 Cookie／無 Redirect 下載。`image.translate` 驗證圖片資料與模型回應，使用與文字相同的 engine 佇列、限速與持久快取。字幕維持高優先權；圖片逐塊提交，不堆積整章請求。資料與設定變更使用 epoch 丟棄過期回應。

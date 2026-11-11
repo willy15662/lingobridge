@@ -1,3 +1,4 @@
+import { readImage } from './image-source';
 import { dictionaryPrompt, parseDictionary } from '../core/vocabulary';
 import { VocabularyStore } from './vocabulary';
 import {isPdfTab,workspaceForTab} from '../core/pdf-entry';
@@ -39,16 +40,29 @@ function registerSites() {
 }
 async function dispatch(request: Request, sender: chrome.runtime.MessageSender): Promise<unknown> {
     const isTrusted = trusted(sender);
-    if (!isTrusted && !['settings.public', 'translate', 'captions.info', 'dictionary.lookup', 'vocabulary.save', 'vocabulary.open'].includes(request.kind))
+    if (!isTrusted && !['settings.public', 'translate', 'captions.info', 'dictionary.lookup', 'vocabulary.save', 'vocabulary.open', 'image.read', 'image.translate'].includes(request.kind))
         throw new TranslationError('此操作僅允許擴充套件設定頁使用。');
     if (sender.id !== chrome.runtime.id)
         throw new TranslationError('無效來源。');
-    if (['dictionary.lookup', 'vocabulary.save', 'vocabulary.open'].includes(request.kind) && !isTrusted) {
+    if (['dictionary.lookup', 'vocabulary.save', 'vocabulary.open', 'image.read', 'image.translate'].includes(request.kind) && !isTrusted) {
         const s = await settings();
         if (!sender.url || !/^https?:/.test(sender.url) || sitePolicy(new URL(sender.url).hostname, publicSettings(s)) === 'blocked')
-            throw new TranslationError('此網站已停用查詞。');
+            throw new TranslationError('此網站已停用翻譯。');
     }
     switch (request.kind) {
+        case 'image.read': {
+            const s = await settings();
+            if (!s.images) throw new TranslationError('圖片翻譯未啟用。');
+            return readImage(request.url);
+        }
+        case 'image.translate': {
+            const s = await settings();
+            if (!s.images) throw new TranslationError('圖片翻譯未啟用。');
+            const url = endpointURL(s.providers[s.provider].endpoint);
+            if (!await chrome.permissions.contains({ origins: [url.origin + '/*'] })) throw new TranslationError('請先在設定授權翻譯服務。');
+            try { return await engine.image(request.data, s); }
+            catch (error) { if (error instanceof TranslationError) throw error; throw new TranslationError('圖片辨識失敗，請確認模型支援圖片並重試。'); }
+        }
         case 'dictionary.lookup': {
             const s = await settings();
             if (s.provider === 'deepl') throw new TranslationError('詞意與例句查詢需要 OpenAI 或 Gemini，請在設定切換服務。');

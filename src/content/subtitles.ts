@@ -15,29 +15,47 @@ export class SubtitleTranslator {
     private trackLength=0;
     private loading:AbortController|null=null;
     private timelineVideo:HTMLVideoElement|null=null;
+    private activeVideo:HTMLVideoElement|null=null;
+    private mediaKey = "";
+    private enabledTracks = new Map<TextTrack, TextTrackMode>();
     constructor(private readonly translate: (texts: string[]) => Promise<string[]>) { }
     start(): void {
-        if (this.timer !== null)
-            return;
+        if (this.timer !== null) return;
         this.timer = window.setInterval(() => this.tick(), 200);
-        const session=this.session;
-        const loading=new AbortController();this.loading=loading;
-        const timeout=setTimeout(()=>loading.abort(),15000);
-        void loadYouTubeTimeline(loading.signal).then(cues=>{
-            if(session===this.session&&!loading.signal.aborted&&cues.length){this.timeline=cues;this.timelineVideo=document.querySelector('video');}
-        }).catch(()=>{ /* Unavailable tracks use visible captions, without bypassing access restrictions. */ })
-        .finally(()=>{clearTimeout(timeout);if(this.loading===loading)this.loading=null;});
+        this.tick();
+    }
+    private playback(): { video: HTMLVideoElement; key: string } | null {
+        const video = Array.from(document.querySelectorAll('video')).find(video => !video.paused && !video.ended && video.getBoundingClientRect().width >= 20);
+        return video ? { video, key: location.href + '|' + video.currentSrc } : null;
+    }
+    private prepare(media: { video: HTMLVideoElement; key: string }): void {
+        this.clearSession();
+        this.activeVideo = media.video;
+        this.mediaKey = media.key;
+        if (!/^https:\/\/(www\.|m\.)?youtube\.com\/watch[?]/.test(media.key)) return;
+        const session = this.session;
+        const loading = new AbortController(); this.loading = loading;
+        const timeout = setTimeout(() => loading.abort(), 15000);
+        void loadYouTubeTimeline(loading.signal).then(cues => {
+            if (session === this.session && !loading.signal.aborted && cues.length) { this.timeline = cues; this.timelineVideo = media.video; }
+        }).catch(() => { /* Visible captions remain available when the timeline cannot be loaded. */ })
+        .finally(() => { clearTimeout(timeout); if (this.loading === loading) this.loading = null; });
     }
     stop(): void {
+        if (this.timer !== null) clearInterval(this.timer);
+        this.timer = null;
+        this.clearSession();
+    }
+    private clearSession(): void {
         this.session++;
+        for (const [track, original] of this.enabledTracks) if (track.mode === 'hidden') track.mode = original;
+        this.enabledTracks.clear();
+        this.activeVideo = null; this.mediaKey = '';
         this.loading?.abort();this.loading=null;
         this.timeline=[];this.timelineVideo=null;this.track=null;this.trackLength=0;
         this.cache.clear();
         this.inFlight.clear();
         this.retryAfter = 0;
-        if (this.timer !== null)
-            clearInterval(this.timer);
-        this.timer = null;
         this.last = '';
         this.revision++;
         this.overlay?.remove();
@@ -48,12 +66,14 @@ export class SubtitleTranslator {
         video: HTMLVideoElement;
     } | null {
         for (const video of document.querySelectorAll('video')) {
-            if (video.ended || video.getBoundingClientRect().width < 20)
+            if (video !== this.activeVideo || video.paused || video.ended || video.getBoundingClientRect().width < 20)
                 continue;
             let texts: string[] = [];
-            for (const track of video.textTracks) {
-                if (track.mode !== 'showing' || !track.activeCues)
-                    continue;
+            const tracks = Array.from(video.textTracks);
+            const selected = tracks.find(track => track.mode === 'showing') ?? tracks.find(track => track.mode === 'hidden') ?? tracks.find(track => track.kind === 'subtitles' || track.kind === 'captions');
+            if (selected?.mode === 'disabled') { this.enabledTracks.set(selected, 'disabled'); selected.mode = 'hidden'; }
+            for (const track of selected ? [selected] : []) {
+                if (!track.activeCues) continue;
                 if(track.cues&&(this.track!==track||this.trackLength!==track.cues.length)){
                     this.track=track;this.trackLength=track.cues.length;this.timelineVideo=video;
                     this.timeline=Array.from(track.cues).filter((cue):cue is VTTCue=>cue instanceof VTTCue).map(cue=>({start:cue.startTime,end:cue.endTime,text:cue.text.replace(/<[^>]*>/g,'')})).filter(cue=>cue.text.trim()&&cue.text.length<=12000).sort((a,b)=>a.start-b.start);
@@ -87,7 +107,9 @@ export class SubtitleTranslator {
         this.overlay.style.top = Math.max(0, Math.min(innerHeight - 60, rect.bottom - 100)) + 'px';
         this.overlay.style.width = Math.max(80, rect.width * .8 - 24) + 'px';
         this.overlay.dataset.subtitleMode=this.timeline.length?'prefetch':'live';
-        this.overlay.textContent = text;
+        const nativeVisible = this.track ? this.track.mode === 'showing' : document.querySelector('.ytp-subtitles-button')?.getAttribute('aria-pressed') !== 'false';
+        const source = activeCaption(this.timeline, video.currentTime)?.text ?? this.last;
+        this.overlay.textContent = !nativeVisible && source ? source + '\n' + text : text;
         this.overlay.hidden = false;
     }
     private prefetch(texts:string[]):void{
@@ -103,19 +125,29 @@ export class SubtitleTranslator {
         .finally(()=>{for(const text of texts)if(this.inFlight.get(text)===session)this.inFlight.delete(text);});
     }
     private tick(): void {
+        const media = this.playback();
+        if (!media) {
+            const video = this.activeVideo;
+            const cue = video ? activeCaption(this.timeline, video.currentTime) : undefined;
+            const cached = this.cache.get(cue?.text ?? (this.timeline.length ? '' : this.last));
+            if (video?.paused && !video.ended && video.isConnected && cached) this.render(cached, video);
+            else if (this.overlay) this.overlay.hidden = true;
+            return;
+        }
+        if (media.video !== this.activeVideo || media.key !== this.mediaKey) this.prepare(media);
         const current = this.current();
         const timelineVideo=this.timelineVideo;
         if(timelineVideo&&this.timeline.length){
-            const cc=document.querySelector('.ytp-subtitles-button');
-            const enabled=this.track?this.track.mode==='showing':cc?.getAttribute('aria-pressed')!=='false';
-            if(!enabled||timelineVideo.ended||!timelineVideo.isConnected){if(this.overlay)this.overlay.hidden=true;return;}
+            const enabled=this.track?this.track.mode!=='disabled':true;
+            if(!enabled||timelineVideo.paused||timelineVideo.ended||!timelineVideo.isConnected){if(this.overlay)this.overlay.hidden=true;return;}
             const cue=activeCaption(this.timeline,timelineVideo.currentTime);
             const translated=cue?this.cache.get(cue.text):undefined;
             if(translated)this.render(translated,timelineVideo);
             else if(cue)this.render(Date.now()<this.retryAfter?'字幕翻譯失敗，稍後重試':'字幕預翻譯中…',timelineVideo);
             else if(this.overlay)this.overlay.hidden=true;
             if(!this.inFlight.size&&Date.now()>=this.retryAfter){
-                const batch=captionWindow(this.timeline,timelineVideo.currentTime,this.cache);
+                // Do not hold the current subtitle behind a multi-batch lookahead.
+                const batch=cue&&!this.cache.has(cue.text)?[cue.text]:captionWindow(this.timeline,timelineVideo.currentTime,this.cache);
                 if(batch.length)this.prefetch(batch);
             }
             return;

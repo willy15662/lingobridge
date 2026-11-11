@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { imageResultSchema, type ImageResult } from '../core/images';
 import type { Settings } from '../core/settings';
-import { createProvider, TranslationError, type TranslationProvider } from './providers';
+import { createProvider, translateImage, TranslationError, type TranslationProvider } from './providers';
 export const statsSchema = z.object({ requests: z.number(), characters: z.number(), cacheHits: z.number(), errors: z.number(), inputTokens: z.number(), outputTokens: z.number() });
 export type Stats = z.infer<typeof statsSchema>;
 export const emptyStats = (): Stats => ({ requests: 0, characters: 0, cacheHits: 0, errors: 0, inputTokens: 0, outputTokens: 0 });
@@ -83,6 +84,36 @@ export class TranslationEngine {
             result.push(...await this.translateBatch(texts.slice(index,index+s.batchSize),s,source,target,priority,validate));
         }
         return result;
+    }
+    image(data: string, settings: Settings): Promise<ImageResult> {
+        return this.serial(async () => {
+            await this.load();
+            const configured = { ...settings, providers: { ...settings.providers, [settings.provider]: { ...settings.providers[settings.provider], prompt: 'image-ocr-v1' } } };
+            const key = await cacheKey(configured, settings.source, settings.target, data);
+            const cached = this.cache[key];
+            if (cached && Date.now() - cached.time < 30 * 86400000) {
+                let result: ImageResult | undefined;
+                try { result = imageResultSchema.parse(JSON.parse(cached.value)); }
+                catch { delete this.cache[key]; }
+                if (result) { this.stats.cacheHits++; await this.persist(); return result; }
+            }
+            try {
+                for (let attempt = 0; ; attempt++) {
+                    await this.sleep(Math.max(0, this.lastRequest + 60000 / settings.requestsPerMinute - Date.now()));
+                    this.lastRequest = Date.now(); this.stats.requests++;
+                    try {
+                        const response = await translateImage(data, settings);
+                        this.stats.inputTokens += response.inputTokens; this.stats.outputTokens += response.outputTokens;
+                        this.cache[key] = { value: JSON.stringify(response.result), time: Date.now() };
+                        return response.result;
+                    } catch (error) {
+                        if (!(error instanceof TranslationError) || !error.retryable || attempt >= 2) throw error;
+                        await this.sleep(Math.max(error.retryAfterMs, 500 * 2 ** attempt));
+                    }
+                }
+            } catch (error) { this.stats.errors++; throw error; }
+            finally { await this.persist(); }
+        });
     }
     private translateBatch(texts:string[],s:Settings,source:string,target:string,priority:boolean,validate?: (text: string) => void):Promise<string[]>{
         return this.serial(async () => {

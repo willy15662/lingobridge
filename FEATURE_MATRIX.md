@@ -30,8 +30,9 @@
 | EPUB | 未加密 EPUB 讀取、spine、雙語／僅譯文匯出 | ZIP CRC、DEFLATE、路徑與大小限制單測、HTML／EPUB E2E | 上限 100 MB；不支援 DRM 加密或混淆字型 |
 | TXT／Markdown／HTML | 已實作 | TXT／Markdown／URL 過濾單測、HTML E2E | 文字檔上限 10 MB；Markdown 保留程式碼圍欄 |
 | SRT／VTT | 保留時間軸，雙語／僅譯文匯出 | 字幕結構與注入防護單測 | 阻擋譯文注入偽造時間軸或標籤 |
-| YouTube 字幕 | 嘗試取得字幕軌，90 秒滑動預讀、依時間顯示；可見字幕 fallback | JSON3、同源 URL、預讀／快轉／取消、優先佇列單測 | 需開啟 CC 字幕；切換字幕語言後請重新啟動翻譯；無語音辨識 |
-| 其他影片字幕 | HTML5 TextTrack 完整 cues 預讀與 activeCues fallback | TypeScript、Build、時間軸單測 | 僅適用於公開暴露 `showing` TextTrack 的播放器 |
+| YouTube 字幕 | 播放時獨立自動啟動，90 秒預讀、依時間顯示；可見字幕 fallback | JSON3、同源 URL、預讀／快轉／取消、優先佇列單測 | 直接字幕軌不可用時需開啟 CC；暫停不再預讀；無語音辨識 |
+| 圖片／漫畫 | 可視 `<img>` 像素辨識與譯文區塊疊加、長圖分區、原圖切換、重試 | 影像格式與回應邊界單測、Media E2E、MV3 圖片自動注入 E2E | 預設關閉；需視覺模型及來源授權；無 CSS 背景／canvas／文字擦除重繪 |
+| 其他影片字幕 | HTML5 TextTrack 完整 cues 預讀與 activeCues fallback | TypeScript、Build、時間軸單測 | 支援可載入的字幕軌，必要時以 hidden 載入；無語音辨識 |
 | 文字側邊欄 | Alt+S／Popup 開啟，語言交換、批次、停止、複製 | 文字分批、過期取消、command 邊界單測、MV3 E2E | 草稿不持久保存，重新載入即清除 |
 | Popup／Options | 繁體中文獨立 UI | TypeScript、Build、資料轉換單測、MV3 E2E | 支援網站黑白名單快速切換與樣式即時預覽 |
 | 本機資料管理 | 匯出不含 key、同 origin 匯入保留 key，換 origin 清除、清快取／統計／全部資料 | 單測 | 瀏覽器已授予的網站權限可於 Chrome 擴充套件管理頁移除 |
@@ -43,5 +44,5 @@
 
 - 帳號系統、付費訂閱、廣告或雲端同步。
 - 跨來源 iframe 注入、DRM 加密影音字幕、音訊即時語音辨識（ASR）。
-- 保留原始複雜排版的 PDF 重建、掃描型 PDF 之 OCR 辨識、密碼保護 PDF、圖片／漫畫翻譯。
+- 保留原始複雜排版的 PDF 重建、掃描型 PDF 之 OCR 辨識、密碼保護 PDF。
 - Chrome 內建原生 PDF 閱讀器畫面內的直接雙語插入與選取翻譯（統一導流至本套件的文件工作區處理）。
