@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.zip
+# Share the verified installation package linked from README.
+!/local-bilingual-reading.zip
+evidence/
+HANDOFF.md
+REVERSE_ENGINEERING_REPORT.md
+scripts/DELEGATE_CONTRACT.md
+.browsers/
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+.DS_Store
+Thumbs.db
+*.log
+coverage/

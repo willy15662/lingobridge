@@ -1,0 +1,23 @@
+{
+  "name": "local-bilingual-reading",
+  "version": "0.2.3",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/test.mjs",
+    "test:e2e": "node tests/e2e.mjs",
+    "check": "npm run typecheck && npm run build && npm test && node scripts/verify-dist.mjs",
+    "test:content:e2e": "node tests/content.e2e.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.58.2"
+  },
+  "dependencies": {
+    "zod": "3.25.76"
+  }
+}

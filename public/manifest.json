@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "本機雙語閱讀",
+  "version": "0.2.3",
+  "description": "個人用雙語網頁、文件與字幕翻譯。自備 API Key，設定僅儲存於本機。",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "sidePanel"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "background/worker.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "本機雙語閱讀"
+  },
+  "options_page": "options.html",
+  "commands": {
+    "toggle-translation": {
+      "suggested_key": {
+        "default": "Alt+A"
+      },
+      "description": "切換原文與雙語"
+    },
+    "translate-selection": {
+      "description": "翻譯選取文字"
+    },
+    "open-side-panel": {
+      "description": "開啟文字翻譯側邊欄",
+      "suggested_key": {
+        "default": "Alt+S"
+      }
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}

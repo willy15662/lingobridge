@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>雙語閱讀 · 文字翻譯</title><link rel="stylesheet" href="sidepanel.css"></head>
+<body><header><div><span class="eyebrow">雙語閱讀</span><h1>文字翻譯</h1></div><button id="settings" type="button">設定</button></header>
+<main><p class="service">目前服務 <strong id="provider">讀取中…</strong></p><div class="languages"><label>原文語言<select id="source"></select></label><button id="swap" aria-label="交換語言" title="交換語言">⇄</button><label>目標語言<select id="target"></select></label></div>
+<label for="source-text">原文</label><textarea id="source-text" maxlength="60000" rows="9" placeholder="輸入或貼上要翻譯的文字" spellcheck="false"></textarea><div class="meta"><span id="count">0 / 60,000</span><button id="clear">清除</button></div>
+<div class="actions"><button id="translate" class="primary" disabled>翻譯</button><button id="stop" disabled>停止</button></div><p id="status" role="status" aria-live="polite"></p>
+<label for="result">譯文</label><textarea id="result" readonly rows="9" placeholder="譯文會顯示在這裡"></textarea><div class="actions"><button id="copy" disabled>複製譯文</button><button id="documents">開啟文件翻譯</button></div><p class="note">按下翻譯後，文字會送到設定的翻譯服務。草稿僅保留於此頁，重新載入即清除。</p></main><script src="ui/sidepanel.js"></script></body></html>
