@@ -7,7 +7,7 @@ import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 const temp=await mkdtemp(join(tmpdir(),'local-translate-content-'));
 await build({entryPoints:['src/content/dom.ts'],outfile:join(temp,'dom.mjs'),bundle:true,format:'esm',platform:'node'});
-const {splitText,restoreText,replaceText,changed}=await import(pathToFileURL(join(temp,'dom.mjs')).href);
+const {splitText,restoreText,replaceText,changed,isExcluded,isAd}=await import(pathToFileURL(join(temp,'dom.mjs')).href);
 await build({entryPoints:['src/content/controller.ts'],outfile:join(temp,'controller.mjs'),bundle:true,format:'esm',platform:'node'});
 const {PageTranslator}=await import(pathToFileURL(join(temp,'controller.mjs')).href);
 await build({entryPoints:['src/content/interaction.ts'],outfile:join(temp,'interaction.mjs'),bundle:true,format:'esm',platform:'node'});
@@ -42,4 +42,13 @@ test('stopping page translation prevents billing subsequent chunks',async()=>{
  let current=true;let count=0;
  await assert.rejects(PageTranslator.prototype.translateLong.call({settings:{batchSize:1},translate:async batch=>{count++;current=false;return batch;}},['x'.repeat(18000)],()=>current),/已停止/);
  assert.equal(count,1);
+});
+
+test('ad containers and video ad players are excluded from text, image and subtitle translation',()=>{
+ let matched='';
+ const element={closest(selector){matched=selector;return selector.includes('.ad-showing')&&selector.includes('ins.adsbygoogle')?{}:null;}};
+ assert.equal(isExcluded(element),true);
+ assert.equal(isAd(element),true);
+ assert.match(matched,/adsbygoogle/);
+ assert.match(matched,/ad-showing/);
 });

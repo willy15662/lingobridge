@@ -32,3 +32,17 @@ test('stopped prefetch cannot populate a new session',async()=>{
 test('paused playback does not prefetch or request new captions',()=>{
  const {translator,calls}=fixture();translator.playback=()=>null;translator.tick();assert.equal(calls.length,0);
 });
+
+test('ad videos are ignored by subtitle playback detection and empty YouTube timeline retries',async()=>{
+ const previousDoc=globalThis.document;const previousLoc=globalThis.location;
+ const adVideo={paused:false,ended:false,currentSrc:'blob:ad',getBoundingClientRect:()=>({width:400}),closest:sel=>sel.includes('.ad-showing')?{}:null};
+ const mainVideo={paused:false,ended:false,currentSrc:'blob:main',getBoundingClientRect:()=>({width:400}),closest:()=>null};
+ globalThis.document={querySelectorAll:()=>[adVideo,mainVideo],querySelector:()=>null};
+ globalThis.location={href:'https://music.youtube.com/watch?list=1&v=abc',hostname:'music.youtube.com',pathname:'/watch'};
+ try{
+  const translator=new SubtitleTranslator(async()=>[]);
+  const detected=translator.playback();
+  assert.equal(detected?.video,mainVideo);
+  assert.equal(translator.isYouTubeWatch(),true);
+ }finally{globalThis.document=previousDoc;globalThis.location=previousLoc;}
+});

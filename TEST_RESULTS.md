@@ -4,17 +4,17 @@
 
 ## 單元與邊界測試（`npm run check`）
 
-`npm run check` 完成 TypeScript strict 檢查、七個入口的 esbuild 打包、89 項單元／邊界測試、Manifest V3 與產物資源檢查。
+`npm run check` 完成 TypeScript strict 檢查、七個入口的 esbuild 打包、91 項單元／邊界測試、Manifest V3 與產物資源檢查。
 
 | 測試檔 | 通過數 | 實際驗證內容 |
 | --- | ---: | --- |
 | backend.test.mjs | 14 | schema、網站規則、端點驗證、三 Provider fixture、回應格式、快取／重啟 engine、重試與限速、優先佇列 |
-| content.test.mjs | 7 | Unicode 分段、原文字節點還原、框架改寫保護、已移除節點、大批次上限、停止後不再發出批次、RTL |
+| content.test.mjs | 8 | Unicode 分段、原文字節點還原、框架改寫保護、已移除節點、大批次上限、停止後不再發出批次、RTL、廣告容器排除 |
 | documents-pdf.test.mjs | 4 | 匹配版本與授權、文字行分組、安全匯出、實際 PDF.js adapter 擷取有效雙頁 PDF 與錯誤型別 |
 | documents.test.mjs | 11 | ZIP、CRC、DEFLATE、拒絕不合法壓縮檔、字幕、TXT／Markdown、URL 過濾、批次上限 |
 | pdf-entry.test.mjs | 4 | 本機／遠端 PDF 路由、MIME 探測、下載安全設定（省略 Cookie／禁 Redirect）、非法網址與非 PDF 回應 |
 | reading-tools.test.mjs | 6 | 側邊欄分批、取消、輸入與結果驗證、九種樣式、遮罩鍵盤入口、訊息錯誤傳遞 |
-| subtitles.test.mjs | 6 | 舊 session 隔離、fallback 不累積請求、時間軸播放／快轉與停止 |
+| subtitles.test.mjs | 7 | 舊 session 隔離、fallback 不累積請求、時間軸播放／快轉與停止、廣告影片忽略與 YouTube 網址判斷 |
 | caption-timeline.test.mjs | 6 | JSON3、時間窗上限、同源 URL／影片 ID、下載與錯誤邊界 |
 | ui.test.mjs | 10 | 匯出移除 Key、同 origin 匯入保留 Key、跨 origin 清 Key、非法設定、端點與協定驗證、網站規則更新 |
 | worker.test.mjs | 13 | storage 存取層級、來源驗證、秘密隔離、非法訊息、API 網域權限、公開設定廣播、Alt+S 開啟、YouTube 字幕 metadata 邊界、PDF 導流 |

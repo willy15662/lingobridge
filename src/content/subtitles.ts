@@ -1,5 +1,5 @@
 import {activeCaption,captionWindow,loadYouTubeTimeline,type CaptionCue} from './caption-timeline';
-import { OWN_ATTRIBUTE } from './dom';
+import { OWN_ATTRIBUTE, isAd } from './dom';
 /** Adapter for page-exposed TextTracks and YouTube's visible caption DOM. */
 export class SubtitleTranslator {
     private timer: number | null = null;
@@ -17,6 +17,7 @@ export class SubtitleTranslator {
     private timelineVideo:HTMLVideoElement|null=null;
     private activeVideo:HTMLVideoElement|null=null;
     private mediaKey = "";
+    private timelineRetry = 0;
     private enabledTracks = new Map<TextTrack, TextTrackMode>();
     constructor(private readonly translate: (texts: string[]) => Promise<string[]>) { }
     start(): void {
@@ -25,21 +26,29 @@ export class SubtitleTranslator {
         this.tick();
     }
     private playback(): { video: HTMLVideoElement; key: string } | null {
-        const video = Array.from(document.querySelectorAll('video')).find(video => !video.paused && !video.ended && video.getBoundingClientRect().width >= 20);
+        const video = Array.from(document.querySelectorAll('video')).find(video => !video.paused && !video.ended && !isAd(video) && video.getBoundingClientRect().width >= 20);
         return video ? { video, key: location.href + '|' + video.currentSrc } : null;
+    }
+    private isYouTubeWatch(): boolean {
+        return typeof location === 'object' && /(^|\.)youtube\.com$/.test(location.hostname) && location.pathname === '/watch';
+    }
+    private loadTimeline(video: HTMLVideoElement): void {
+        if (!this.isYouTubeWatch() || this.loading || this.timeline.length) return;
+        const session = this.session;
+        const loading = new AbortController(); this.loading = loading;
+        const timeout = setTimeout(() => loading.abort(), 15000);
+        void loadYouTubeTimeline(loading.signal).then(cues => {
+            if (session !== this.session || loading.signal.aborted) return;
+            if (cues.length) { this.timeline = cues; this.timelineVideo = video; this.timelineRetry = 0; }
+            else this.timelineRetry = Date.now() + 2000;
+        }).catch(() => { if (session === this.session) this.timelineRetry = Date.now() + 5000; })
+        .finally(() => { clearTimeout(timeout); if (this.loading === loading) this.loading = null; });
     }
     private prepare(media: { video: HTMLVideoElement; key: string }): void {
         this.clearSession();
         this.activeVideo = media.video;
         this.mediaKey = media.key;
-        if (!/^https:\/\/(www\.|m\.)?youtube\.com\/watch[?]/.test(media.key)) return;
-        const session = this.session;
-        const loading = new AbortController(); this.loading = loading;
-        const timeout = setTimeout(() => loading.abort(), 15000);
-        void loadYouTubeTimeline(loading.signal).then(cues => {
-            if (session === this.session && !loading.signal.aborted && cues.length) { this.timeline = cues; this.timelineVideo = media.video; }
-        }).catch(() => { /* Visible captions remain available when the timeline cannot be loaded. */ })
-        .finally(() => { clearTimeout(timeout); if (this.loading === loading) this.loading = null; });
+        this.loadTimeline(media.video);
     }
     stop(): void {
         if (this.timer !== null) clearInterval(this.timer);
@@ -50,7 +59,7 @@ export class SubtitleTranslator {
         this.session++;
         for (const [track, original] of this.enabledTracks) if (track.mode === 'hidden') track.mode = original;
         this.enabledTracks.clear();
-        this.activeVideo = null; this.mediaKey = '';
+        this.activeVideo = null; this.mediaKey = ''; this.timelineRetry = 0;
         this.loading?.abort();this.loading=null;
         this.timeline=[];this.timelineVideo=null;this.track=null;this.trackLength=0;
         this.cache.clear();
@@ -66,7 +75,7 @@ export class SubtitleTranslator {
         video: HTMLVideoElement;
     } | null {
         for (const video of document.querySelectorAll('video')) {
-            if (video !== this.activeVideo || video.paused || video.ended || video.getBoundingClientRect().width < 20)
+            if (video !== this.activeVideo || video.paused || video.ended || isAd(video) || video.getBoundingClientRect().width < 20)
                 continue;
             let texts: string[] = [];
             const tracks = Array.from(video.textTracks);
@@ -135,6 +144,7 @@ export class SubtitleTranslator {
             return;
         }
         if (media.video !== this.activeVideo || media.key !== this.mediaKey) this.prepare(media);
+        else if (this.timelineRetry && Date.now() >= this.timelineRetry) { this.timelineRetry = 0; this.loadTimeline(media.video); }
         const current = this.current();
         const timelineVideo=this.timelineVideo;
         if(timelineVideo&&this.timeline.length){
