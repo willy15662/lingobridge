@@ -4,7 +4,7 @@
 
 伴讀翻譯是一款 Chrome 擴充套件，支援雙語閱讀、影片字幕與文件翻譯。不需要註冊本專案帳號；準備自己的翻譯服務 API Key，就能開始使用。
 
-[![下載擴充套件 ZIP](docs/assets/download.svg)](https://github.com/willy15662/translate/raw/refs/heads/main/local-bilingual-reading.zip) [![Google AI Studio 申請 API Key](docs/assets/ai-studio.svg)](https://aistudio.google.com/apikey)
+[![下載擴充套件 ZIP](docs/assets/download.svg)](https://github.com/willy15662/lingobridge/raw/refs/heads/main/local-bilingual-reading.zip) [![Google AI Studio 申請 API Key](docs/assets/ai-studio.svg)](https://aistudio.google.com/apikey)
 
 **第一次使用：下載 ZIP → 解壓縮 → 載入 Chrome → 填入 Gemini API Key。** 不需要安裝 Node.js，也不需要寫程式。
 
@@ -132,7 +132,7 @@ Chrome 內建 PDF 閱讀器不能直接插入譯文或使用本套件的選取�
 | 留言能翻譯，字幕沒有 | 確認 CC 和「雙語影片字幕」都已開啟；暫停影片等第一批結果 |
 | PDF 無法讀取 | 改用文件工作區選取本機檔案；確認不是掃描件、密碼文件或登入頁 |
 
-要回報問題，可到 [Issues](https://github.com/willy15662/translate/issues) 提供操作步驟、錯誤訊息及套件版本。截圖請遮住 API Key 與私人內容。
+要回報問題，可到 [Issues](https://github.com/willy15662/lingobridge/issues) 提供操作步驟、錯誤訊息及套件版本。截圖請遮住 API Key 與私人內容。
 
 ## 更新到新版
 

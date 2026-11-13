@@ -99,6 +99,6 @@ TypeScript、Build 與 95 項測試通過。新增 tests/subtitle-ui.e2e.mjs 驗
 - 移除原字幕 100% 字級覆蓋；保留原生字級，譯文字級依原字幕計算。僅譯文模式不再把量測字級設為 0。
 - 修正 YouTube 滾動字幕框（`.caption-window`）因固定高度與 `overflow: hidden` 裁切譯文的問題。
 - 修正 YouTube `/api/timedtext` 因缺少 `pot` 簽章回傳空內容的問題：透過 MAIN world 攔截與 `player.setOption('captions', 'reload', true)` 觸發重載，穩定取得完整 JSON3 時間軸，並自動合併 ASR 短碎片為完整句子。
-- `node tests/subtitle-ui.e2e.mjs` 與真實 YouTube 影片（`jNr_6eINleM`）瀏覽器端對端驗證通過。
+- `node tests/subtitle-ui.e2e.mjs` 與真實 YouTube 英文自動字幕（ASR Roll-up）影片瀏覽器端對端驗證通過。
 - `npm run check` 通過：97 項測試、TypeScript、Build、215 個產物檢查。
 - 字幕 UI E2E 新增 28px 原生字幕回歸檢查，但 Chromium 在此環境仍因 Operation not permitted 無法啟動。真實 YouTube 及線上模型延遲尚待驗證。

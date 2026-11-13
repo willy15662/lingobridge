@@ -1,7 +1,6 @@
 {
   "name": "local-bilingual-reading",
   "version": "0.3.2",
-  "private": true,
   "license": "MIT",
   "type": "module",
   "scripts": {
