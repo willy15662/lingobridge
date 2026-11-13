@@ -1,10 +1,11 @@
+import { imagePalette, imageFontSize, fallbackPalette, type ImagePalette } from './image-style';
 import { rpc } from '../core/messages';
 import { imageResultSchema, type ImageResult } from '../core/images';
 import { OWN_ATTRIBUTE, isExcluded } from './dom';
 import { sitePolicy, type PublicSettings } from '../core/settings';
 import { translationDirection } from './interaction';
 
-type Tile = { kind: 'ready'; height: number; result: ImageResult } | { kind: 'error'; message: string } | { kind: 'pending' };
+type Tile = { kind: 'ready'; height: number; result: ImageResult; palettes: ImagePalette[] } | { kind: 'error'; message: string } | { kind: 'pending' };
 interface ImageState {
     image: HTMLImageElement;
     source: string;
@@ -103,7 +104,7 @@ export class ImageTranslator {
         for (let y = Math.floor(start / height) * height; y < end; y += height) if (!state.tiles.has(y)) tiles.push(y);
         return tiles;
     }
-    private async pixels(state: ImageState, y: number, height: number): Promise<string> {
+    private async pixels(state: ImageState, y: number, height: number): Promise<{ data: string; canvas: HTMLCanvasElement }> {
         const image = state.image;
         const canvas = document.createElement('canvas');
         const scale = Math.min(1, 1600 / image.naturalWidth, 1800 / height);
@@ -116,13 +117,13 @@ export class ImageTranslator {
             if (data.length > 4500000) throw new Error('圖片區塊過大。');
             return data;
         };
-        try { return encode(image); }
+        try { return { data: encode(image), canvas }; }
         catch {
             state.decoded ??= this.api.read(state.source).then(async data => { const decoded = new Image(); decoded.src = data; await decoded.decode(); return decoded; });
             const decoded = await state.decoded;
             // A tainted canvas stays tainted after clearRect; reset its bitmap.
             canvas.width = canvas.width;
-            return encode(decoded);
+            return { data: encode(decoded), canvas };
         }
     }
     private async flush(): Promise<void> {
@@ -140,11 +141,20 @@ export class ImageTranslator {
                     const height = Math.min(1800, Math.round(image.naturalWidth * 1.5), image.naturalHeight - y);
                     state.tiles.set(y, { kind: 'pending' }); state.revision++; this.render(state);
                     try {
-                        const data = await this.pixels(state, y, height);
+                        const { data, canvas } = await this.pixels(state, y, height);
                         if (epoch !== this.epoch || state !== this.states.get(image) || !this.visible.has(image) || document.querySelector('video')) { state.tiles.delete(y); state.revision++; return; }
                         const result = await this.api.translate(data);
                         if (epoch !== this.epoch || state !== this.states.get(image)) return;
-                        state.tiles.set(y, { kind: 'ready', height, result }); state.revision++;
+                        const palettes = result.regions.map(region => {
+                            try {
+                                const [top, left, bottom, right] = region.box;
+                                const sample = document.createElement('canvas'); sample.width = 32; sample.height = 32;
+                                const context = sample.getContext('2d'); if (!context) return fallbackPalette;
+                                context.drawImage(canvas, left / 1000 * canvas.width, top / 1000 * canvas.height, (right - left) / 1000 * canvas.width, (bottom - top) / 1000 * canvas.height, 0, 0, 32, 32);
+                                return imagePalette(context.getImageData(0, 0, 32, 32).data);
+                            } catch { return fallbackPalette; }
+                        });
+                        state.tiles.set(y, { kind: 'ready', height, result, palettes }); state.revision++;
                     } catch (error) {
                         if (epoch !== this.epoch || state !== this.states.get(image)) return;
                         state.tiles.set(y, { kind: 'error', message: error instanceof Error ? error.message : '圖片翻譯失敗。' }); state.revision++;
@@ -171,18 +181,24 @@ export class ImageTranslator {
         }
         state.renderedKey = key;
         const style = document.createElement('style');
-        style.textContent = ':host{all:initial}.region{box-sizing:border-box;position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;white-space:pre-wrap;overflow:hidden;overflow-wrap:anywhere;background:#fff;color:#191919;padding:2px;border-radius:3px;font-family:system-ui,sans-serif;line-height:1.2}.controls{position:absolute;left:4px;display:flex;gap:4px;max-width:calc(100% - 8px);pointer-events:auto}button{font:12px/1.5 system-ui,sans-serif;padding:4px 7px;background:#211e25eF;border:1px solid #98879f;color:white;border-radius:6px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}button:focus-visible{outline:2px solid #dba4c3}';
+        style.textContent = ':host{all:initial}.region{box-sizing:border-box;position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;white-space:pre-wrap;overflow:hidden;overflow-wrap:anywhere;word-break:break-all;background:#fff;color:#191919;padding:2px;border-radius:3px;font-family:system-ui,sans-serif;line-height:1.2}.controls{position:absolute;left:4px;display:flex;gap:4px;max-width:calc(100% - 8px);pointer-events:auto}button{font:12px/1.5 system-ui,sans-serif;padding:4px 7px;background:#211e25eF;border:1px solid #98879f;color:white;border-radius:6px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}button:focus-visible{outline:2px solid #dba4c3}';
         const nodes: Node[] = [style];
+        const measureContext = document.createElement('canvas').getContext('2d');
         let regions = 0;
-        for (const [y, tile] of state.tiles) if (tile.kind === 'ready') for (const region of tile.result.regions) {
+        for (const [y, tile] of state.tiles) if (tile.kind === 'ready') for (const [index, region] of tile.result.regions.entries()) {
             regions++;
             if (state.original) continue;
             const [top, left, bottom, right] = region.box;
             const span = document.createElement('span'); span.className = 'region'; span.textContent = region.translation; span.lang = this.settings().target; span.dir = translationDirection(this.settings().target);
             const width = (right - left) / 1000 * rect.width;
             const height = (bottom - top) / 1000 * tile.height / state.image.naturalHeight * rect.height;
-            const lines = Math.max(1, Math.ceil(region.translation.length / Math.max(1, width / 14)));
-            Object.assign(span.style, { left: left / 10 + '%', top: (y + top / 1000 * tile.height) / state.image.naturalHeight * 100 + '%', width: (right - left) / 10 + '%', height: height + 'px', fontSize: Math.max(9, Math.min(24, height / (lines * 1.2))) + 'px' });
+            const palette = tile.palettes[index] ?? fallbackPalette;
+            const fontSize = imageFontSize(region.translation, width, height, (text, size) => {
+                if (!measureContext) return Array.from(text).length * size;
+                measureContext.font = `${size}px system-ui,sans-serif`;
+                return measureContext.measureText(text).width;
+            });
+            Object.assign(span.style, { left: left / 10 + '%', top: (y + top / 1000 * tile.height) / state.image.naturalHeight * 100 + '%', width: (right - left) / 10 + '%', height: height + 'px', fontSize: fontSize + 'px', background: palette.background, color: palette.foreground });
             span.setAttribute('aria-label', region.source + '：' + region.translation); nodes.push(span);
         }
         const controls = document.createElement('div'); controls.className = 'controls'; controls.style.top = Math.max(4, -rect.top + 4) + 'px';

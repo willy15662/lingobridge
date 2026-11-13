@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "本機雙語閱讀",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "個人用雙語網頁、文件、影片字幕與圖片漫畫翻譯。自備 API Key，設定僅儲存於本機。",
   "minimum_chrome_version": "120",
   "permissions": [

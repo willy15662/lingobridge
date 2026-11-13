@@ -49,7 +49,7 @@ export class PageTranslator {
         this.themeStyles.setAttribute(OWN_ATTRIBUTE, 'styles');
         this.themeStyles.textContent = maskStyles;
         document.documentElement.append(this.themeStyles);
-        this.subtitles = new SubtitleTranslator(subtitleTranslate);
+        this.subtitles = new SubtitleTranslator(subtitleTranslate, () => this.settings.batchSize);
         this.images = new ImageTranslator(() => this.settings);
         this.intersections = new IntersectionObserver(entries => {
             for (const entry of entries) {

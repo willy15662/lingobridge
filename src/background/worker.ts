@@ -89,20 +89,78 @@ async function dispatch(request: Request, sender: chrome.runtime.MessageSender):
         case 'captions.info': {
             if(!sender.tab?.id||!sender.url||!/^https:\/\/(www\.|m\.)?youtube\.com\/watch(?:\?|$)/.test(sender.url))throw new TranslationError('不支援此字幕來源。');
             const results=await chrome.scripting.executeScript({target:{tabId:sender.tab.id},world:'MAIN',func:()=>{
+                const g=globalThis as Record<string,unknown>;
+                if(!g.__localTranslateCaptionCache){
+                    const cache=new Map<string,string>();
+                    g.__localTranslateCaptionCache=cache;
+                    const record=(rawUrl:unknown)=>{
+                        if(typeof rawUrl!=='string'||!rawUrl.includes('/api/timedtext'))return;
+                        try{
+                            const base=typeof location==='object'&&location?.origin?location.origin:'https://www.youtube.com';
+                            const u=new URL(rawUrl,base);
+                            const v=u.searchParams.get('v');
+                            const lang=u.searchParams.get('lang')||'';
+                            if(v&&(u.searchParams.has('pot')||!cache.has(v+':'+lang))){
+                                cache.set(v+':'+lang,u.toString());
+                                cache.set(v,u.toString());
+                            }
+                        }catch{}
+                    };
+                    if(typeof XMLHttpRequest==='function'){
+                        const origOpen=XMLHttpRequest.prototype.open;
+                        XMLHttpRequest.prototype.open=function(method:string,url:string|URL,...rest:unknown[]){
+                            record(typeof url==='string'?url:url?.toString());
+                            return (origOpen as Function).call(this,method,url,...rest);
+                        };
+                    }
+                    if(typeof fetch==='function'){
+                        const origFetch=globalThis.fetch;
+                        globalThis.fetch=function(input:RequestInfo|URL,init?:RequestInit){
+                            record(typeof input==='string'?input:input instanceof URL?input.toString():input?.url);
+                            return origFetch.call(this,input,init);
+                        };
+                    }
+                }
+                const cache=g.__localTranslateCaptionCache as Map<string,string>|undefined;
                 const player=document.getElementById('movie_player');
                 if(!player||!('getPlayerResponse' in player)||typeof player.getPlayerResponse!=='function')return null;
                 const data:unknown=player.getPlayerResponse();
                 if(!data||typeof data!=='object')return null;
                 let language:unknown;
+                let trackOption:unknown;
                 if('getOption' in player&&typeof player.getOption==='function'){
-                    const track:unknown=player.getOption('captions','track');
-                    if(track&&typeof track==='object'&&'languageCode' in track)language=track.languageCode;
+                    trackOption=player.getOption('captions','track');
+                    if(trackOption&&typeof trackOption==='object'&&'languageCode' in trackOption)language=trackOption.languageCode;
                 }
                 if(!('videoDetails' in data)||!data.videoDetails||typeof data.videoDetails!=='object'||!('videoId' in data.videoDetails))return null;
                 if(!('captions' in data)||!data.captions||typeof data.captions!=='object'||!('playerCaptionsTracklistRenderer' in data.captions))return null;
                 const renderer=data.captions.playerCaptionsTracklistRenderer;
                 if(!renderer||typeof renderer!=='object'||!('captionTracks' in renderer))return null;
-                return {videoId:data.videoDetails.videoId,language,tracks:renderer.captionTracks};
+                const videoId=String(data.videoDetails.videoId);
+                const langKey=typeof language==='string'?language:'';
+                let signedUrl=cache?.get(videoId+':'+langKey)||cache?.get(videoId)||'';
+                if(!signedUrl&&typeof performance==='object'&&typeof performance.getEntries==='function'){
+                    for(const entry of performance.getEntries()){
+                        if(entry&&typeof entry.name==='string'&&entry.name.includes('/api/timedtext')&&entry.name.includes('v='+videoId)){
+                            if(entry.name.includes('pot=')||!signedUrl)signedUrl=entry.name;
+                        }
+                    }
+                }
+                if((!signedUrl||!signedUrl.includes('pot='))&&'setOption' in player&&typeof player.setOption==='function'&&trackOption&&typeof trackOption==='object'&&'languageCode' in trackOption&&trackOption.languageCode){
+                    try{
+                        player.setOption('captions','reload',true);
+                        player.setOption('captions','track',trackOption);
+                        signedUrl=cache?.get(videoId+':'+langKey)||cache?.get(videoId)||signedUrl;
+                    }catch{}
+                }
+                const rawTracks=renderer.captionTracks;
+                const tracks=Array.isArray(rawTracks)?rawTracks.map((t:unknown)=>{
+                    if(!t||typeof t!=='object'||!('baseUrl' in t)||typeof t.baseUrl!=='string')return t;
+                    const tLang='languageCode' in t&&typeof t.languageCode==='string'?t.languageCode:'';
+                    const matched=cache?.get(videoId+':'+tLang)||((!langKey||tLang===langKey)?signedUrl:'');
+                    return matched?{...t,baseUrl:matched}:t;
+                }):rawTracks;
+                return {videoId:data.videoDetails.videoId,language,tracks};
             }});
             return results[0]?.result??null;
         }

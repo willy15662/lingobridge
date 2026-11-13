@@ -3,7 +3,7 @@ const dir=await mkdtemp(tmpdir()+'/translate-subtitle-');
 await build({entryPoints:['src/content/subtitles.ts'],outfile:dir+'/subtitles.mjs',bundle:true,platform:'node',format:'esm'});
 const {SubtitleTranslator}=await import(pathToFileURL(dir+'/subtitles.mjs'));await rm(dir,{recursive:true,force:true});
 const settled=()=>new Promise(resolve=>setImmediate(resolve));
-function fixture(){const calls=[];const renders=[];const translator=new SubtitleTranslator(texts=>new Promise((resolve,reject)=>calls.push({texts,resolve,reject})));const video={};translator.activeVideo=video;translator.mediaKey='fixture';translator.playback=()=>({video,key:'fixture'});translator.current=()=>({text:'Caption',video});translator.render=text=>renders.push(text);return {translator,calls,renders};}
+function fixture(){const calls=[];const renders=[];const translator=new SubtitleTranslator(texts=>new Promise((resolve,reject)=>calls.push({texts,resolve,reject})));translator.controls.attach=()=>{};const video={};translator.activeVideo=video;translator.mediaKey='fixture';translator.playback=()=>({video,key:'fixture'});translator.current=()=>({text:'Caption',video});translator.render=text=>renders.push(text);return {translator,calls,renders};}
 test('settings restart issues a fresh caption request and ignores old failures',async()=>{
  const {translator,calls,renders}=fixture();translator.tick();translator.stop();translator.tick();assert.equal(calls.length,2);
  calls[0].reject(Error('old request'));await settled();assert.equal(translator.retryAfter,0);assert.equal(translator.inFlight.size,1);
@@ -21,8 +21,8 @@ test('prefetched captions display by video time and seeking prioritizes a new wi
  const previous=globalThis.document;globalThis.document={querySelector:()=>null};
  try{const {translator,calls,renders}=fixture();translator.current=()=>null;
  const video={currentTime:0,isConnected:true,ended:false};translator.activeVideo=video;translator.playback=()=>({video,key:'fixture'});translator.timelineVideo=video;translator.timeline=[{start:0,end:2,text:'first'},{start:2,end:4,text:'second'},{start:150,end:155,text:'seek'}];
- translator.tick();assert.deepEqual(calls[0].texts,['first']);calls[0].resolve(['第一']);await settled();translator.tick();assert.deepEqual(calls[1].texts,['second']);calls[1].resolve(['第二']);await settled();video.currentTime=2.5;translator.tick();assert.equal(renders.at(-1),'第二');assert.equal(calls.length,2);
- video.currentTime=151;translator.tick();assert.deepEqual(calls[2].texts,['seek']);calls[2].resolve(['快轉']);await settled();translator.tick();assert.equal(renders.at(-1),'快轉');
+ translator.tick();assert.deepEqual(calls[0].texts,['first','second']);calls[0].resolve(['第一','第二']);await settled();video.currentTime=2.5;translator.tick();assert.equal(renders.at(-1),'第二');assert.equal(calls.length,1);
+ video.currentTime=151;translator.tick();assert.deepEqual(calls[1].texts,['seek']);calls[1].resolve(['快轉']);await settled();translator.tick();assert.equal(renders.at(-1),'快轉');
  }finally{globalThis.document=previous;}
 });
 test('stopped prefetch cannot populate a new session',async()=>{
@@ -45,4 +45,27 @@ test('ad videos are ignored by subtitle playback detection and empty YouTube tim
   assert.equal(detected?.video,mainVideo);
   assert.equal(translator.isYouTubeWatch(),true);
  }finally{globalThis.document=previousDoc;globalThis.location=previousLoc;}
+});
+test('seek current cue can request translation while lookahead is pending, with bounded urgent work',async()=>{
+ const {translator,calls}=fixture();translator.current=()=>null;const video={currentTime:0,isConnected:true,ended:false};translator.activeVideo=video;translator.playback=()=>({video,key:'fixture'});translator.timelineVideo=video;translator.timeline=[{start:0,end:4,text:'first'},{start:150,end:155,text:'seek'}];
+ translator.tick();assert.deepEqual(calls[0].texts,['first']);video.currentTime=151;translator.tick();assert.deepEqual(calls[1].texts,['seek']);translator.tick();assert.equal(calls.length,2);calls[1].resolve(['快轉']);calls[0].resolve(['第一']);await settled();assert.equal(translator.urgent,false);
+});
+
+test('disabled or original mode blocks late rendering at the rendering boundary',()=>{
+ const translator=new SubtitleTranslator(async()=>[]);translator.overlay={hidden:false};
+ translator.controls.enabled=false;translator.render('late',{});assert.equal(translator.overlay.hidden,true);
+ translator.controls.enabled=true;translator.controls.mode='original';translator.overlay.hidden=false;translator.render('late',{});assert.equal(translator.overlay.hidden,true);
+});
+
+test('slow startup response already contains upcoming cues instead of chasing expired lines',async()=>{
+ const {translator,calls,renders}=fixture();translator.current=()=>null;
+ const video={currentTime:0,isConnected:true,ended:false};translator.activeVideo=video;translator.playback=()=>({video,key:'fixture'});translator.timelineVideo=video;
+ translator.timeline=[{start:0,end:2,text:'one'},{start:2,end:4,text:'two'},{start:4,end:6,text:'three'}];
+ translator.tick();assert.deepEqual(calls[0].texts,['one','two','three']);
+ video.currentTime=3;calls[0].resolve(['一','二','三']);await settled();translator.tick();assert.equal(renders.at(-1),'二');
+ video.currentTime=5;translator.tick();assert.equal(renders.at(-1),'三');assert.equal(calls.length,1);
+});
+
+test('prefetch respects configured provider batch size and excludes in-flight cues',()=>{
+ const {translator}=fixture();translator.batchSize=()=>2;translator.timeline=Array.from({length:10},(_,i)=>({start:i,end:i+2,text:'line'+i}));translator.inFlight.set('line0',0);assert.deepEqual(translator.window(0),['line1','line2']);
 });

@@ -3,13 +3,30 @@ export interface CaptionCue {start:number;end:number;text:string}
 const json3=z.object({events:z.array(z.object({tStartMs:z.number().finite().nonnegative(),dDurationMs:z.number().finite().positive().optional(),segs:z.array(z.object({utf8:z.string().max(12000)})).optional()})).max(50000)});
 export function parseCaptionTimeline(value:unknown):CaptionCue[]{
  const events=json3.parse(value).events;
- const cues:CaptionCue[]=[];
+ const raw:CaptionCue[]=[];
  for(const event of events){
-  const text=event.segs?.map(segment=>segment.utf8).join('').trim();
+  const text=event.segs?.map(segment=>segment.utf8).join('').replace(/\s+/g,' ').trim();
   if(!text||text.length>12000||!event.dDurationMs)continue;
-  cues.push({start:event.tStartMs/1000,end:(event.tStartMs+event.dDurationMs)/1000,text});
+  raw.push({start:event.tStartMs/1000,end:(event.tStartMs+event.dDurationMs)/1000,text});
  }
- return cues.sort((a,b)=>a.start-b.start);
+ raw.sort((a,b)=>a.start-b.start);
+ // Trim overlapping end times in ASR roll-up tracks so two windows do not linger simultaneously.
+ for(let i=0;i<raw.length-1;i++){
+  const cur=raw[i],next=raw[i+1];
+  if(cur&&next&&cur.end>next.start&&next.start>cur.start)cur.end=next.start;
+ }
+ // Merge short consecutive roll-up fragments into natural sentence-level cues.
+ const cues:CaptionCue[]=[];
+ for(const cue of raw){
+  const prev=cues[cues.length-1];
+  if(prev&&cue.start-prev.end<=0.5&&prev.end-prev.start<7&&prev.text.length+1+cue.text.length<=120&&!/[.!?。！？]["')\]]*$/.test(prev.text)){
+   prev.text+=' '+cue.text;
+   prev.end=Math.max(prev.end,cue.end);
+  }else{
+   cues.push({...cue});
+  }
+ }
+ return cues;
 }
 export function activeCaption(cues:CaptionCue[],time:number):CaptionCue|undefined{
  // Latest start wins for rolling auto-caption windows.
@@ -42,7 +59,16 @@ export async function loadYouTubeTimeline(signal:AbortSignal):Promise<CaptionCue
  const page=new URL(location.href);
  if(!/(^|\.)youtube\.com$/.test(page.hostname)||page.pathname!=='/watch')return [];
  const {rpc}=await import('../core/messages');
- const url=captionURL(await rpc({kind:'captions.info'}),page);
+ const info=await rpc({kind:'captions.info'});
+ let url=captionURL(info,page);
+ if(typeof performance==='object'&&typeof performance.getEntriesByType==='function'){
+  const vid=page.searchParams.get('v');
+  for(const entry of performance.getEntriesByType('resource')){
+   if(entry&&typeof entry.name==='string'&&entry.name.includes('/api/timedtext')&&vid&&entry.name.includes('v='+vid)&&entry.name.includes('pot=')){
+    try{const u=new URL(entry.name);if(u.origin===page.origin&&u.pathname==='/api/timedtext'&&!u.username&&!u.password){u.searchParams.set('fmt','json3');url=u;}}catch{}
+   }
+  }
+ }
  if(!url||signal.aborted)return [];
  const response=await fetch(url,{signal,credentials:'same-origin',redirect:'error'});
  if(!response.ok||Number(response.headers.get('content-length'))>5000000)throw new Error('無法讀取字幕軌');
@@ -51,5 +77,7 @@ export async function loadYouTubeTimeline(signal:AbortSignal):Promise<CaptionCue
  try{while(true){const chunk=await reader.read();if(chunk.done)break;size+=chunk.value.length;if(size>5000000)throw new Error('字幕軌過大');chunks.push(chunk.value);}}
  finally{await reader.cancel();}
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
- return parseCaptionTimeline(JSON.parse(new TextDecoder().decode(bytes)));
+ const text=new TextDecoder().decode(bytes).trim();
+ if(!text)return [];
+ return parseCaptionTimeline(JSON.parse(text));
 }

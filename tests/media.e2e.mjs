@@ -48,7 +48,7 @@ try{
    window.readCalls.push(message);return{ok:false,error:'unexpected read'};
   }};
   window.controller=new Harness.PageTranslator({...settings,autoTranslate:true,images:true,subtitles:false},async texts=>{window.pageCalls.push(...texts);return texts;});
-  const canvas=document.createElement('canvas');canvas.width=300;canvas.height=4000;const ctx=canvas.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,300,4000);ctx.fillStyle='black';ctx.font='24px sans-serif';for(let y=80;y<4000;y+=450)ctx.fillText('Hello reader',40,y);
+  const canvas=document.createElement('canvas');canvas.width=300;canvas.height=4000;const ctx=canvas.getContext('2d');ctx.fillStyle='#202020';ctx.fillRect(0,0,300,4000);ctx.fillStyle='white';ctx.font='24px sans-serif';for(let y=80;y<4000;y+=450)ctx.fillText('Hello reader',40,y);
   document.querySelector('#comic').src=canvas.toDataURL();canvas.height=300;ctx.fillStyle='white';ctx.fillRect(0,0,300,300);ctx.fillStyle='black';ctx.fillText('Later image',40,60);document.querySelector('#later').src=canvas.toDataURL();
  },publicSettings(defaults));
  await page.waitForFunction(()=>window.imageCalls.length===2);await page.waitForTimeout(300);
@@ -57,6 +57,7 @@ try{
  const dimensions=await page.evaluate(async()=>Promise.all(window.imageCalls.map(async data=>{const image=new Image();image.src=data;await image.decode();return{w:image.naturalWidth,h:image.naturalHeight};})));
  assert.ok(dimensions.every(d=>d.w===300&&d.h===450));
  const overlay=page.locator('[data-local-translate="image"]');assert.match(await overlay.locator('.region').first().textContent(),/讀者你好/);
+ assert.equal(await overlay.locator('.region').first().evaluate(el=>getComputedStyle(el).color),'rgb(255, 255, 255)');
  await overlay.getByRole('button',{name:'顯示原圖',exact:true}).click();assert.equal(await overlay.locator('.region').count(),0);
  await overlay.getByRole('button',{name:'顯示譯文',exact:true}).click();assert.ok(await overlay.locator('.region').count()>0);
  await page.evaluate(()=>window.scrollTo(0,1000));await page.waitForFunction(()=>window.imageCalls.length>2);

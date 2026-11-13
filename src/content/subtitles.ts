@@ -1,7 +1,9 @@
+import {SubtitleControls} from './subtitle-controls';
 import {activeCaption,captionWindow,loadYouTubeTimeline,type CaptionCue} from './caption-timeline';
 import { OWN_ATTRIBUTE, isAd } from './dom';
 /** Adapter for page-exposed TextTracks and YouTube's visible caption DOM. */
 export class SubtitleTranslator {
+    private readonly controls=new SubtitleControls();
     private timer: number | null = null;
     private last = '';
     private revision = 0;
@@ -10,6 +12,9 @@ export class SubtitleTranslator {
     private cache = new Map<string, string>();
     private inFlight = new Map<string, number>();
     private retryAfter = 0;
+    private lastStable = '';
+    private stableSince = 0;
+    private lastError = '';
     private timeline:CaptionCue[]=[];
     private track:TextTrack|null=null;
     private trackLength=0;
@@ -18,8 +23,9 @@ export class SubtitleTranslator {
     private activeVideo:HTMLVideoElement|null=null;
     private mediaKey = "";
     private timelineRetry = 0;
+    private urgent=false;
     private enabledTracks = new Map<TextTrack, TextTrackMode>();
-    constructor(private readonly translate: (texts: string[]) => Promise<string[]>) { }
+    constructor(private readonly translate: (texts: string[]) => Promise<string[]>, private readonly batchSize: () => number = () => 8) { }
     start(): void {
         if (this.timer !== null) return;
         this.timer = window.setInterval(() => this.tick(), 200);
@@ -51,12 +57,14 @@ export class SubtitleTranslator {
         this.loadTimeline(media.video);
     }
     stop(): void {
+        this.controls.dispose();
         if (this.timer !== null) clearInterval(this.timer);
         this.timer = null;
         this.clearSession();
     }
     private clearSession(): void {
         this.session++;
+        this.urgent=false;
         for (const [track, original] of this.enabledTracks) if (track.mode === 'hidden') track.mode = original;
         this.enabledTracks.clear();
         this.activeVideo = null; this.mediaKey = ''; this.timelineRetry = 0;
@@ -65,6 +73,9 @@ export class SubtitleTranslator {
         this.cache.clear();
         this.inFlight.clear();
         this.retryAfter = 0;
+        this.lastError = '';
+        this.lastStable = '';
+        this.stableSince = 0;
         this.last = '';
         this.revision++;
         this.overlay?.remove();
@@ -100,12 +111,20 @@ export class SubtitleTranslator {
         return null;
     }
     private render(text: string, video: HTMLVideoElement): void {
+        if (!this.controls.enabled || this.controls.mode === 'original') { if (this.overlay) this.overlay.hidden = true; return; }
         if (!this.overlay) {
             this.overlay = document.createElement('div');
             this.overlay.setAttribute(OWN_ATTRIBUTE, 'subtitle');
             Object.assign(this.overlay.style, { position: 'fixed', zIndex: '2147483646', pointerEvents: 'none', padding: '5px 12px', borderRadius: '5px', background: 'rgba(0,0,0,.82)', color: 'white', font: '20px/1.5 system-ui', textAlign: 'center', whiteSpace: 'pre-wrap' });
             document.documentElement.append(this.overlay);
         }
+        const caption=document.querySelector('.ytp-caption-window-container .caption-window');
+        if(caption instanceof HTMLElement){
+            if(this.controls.position==='above'){if(caption.firstChild!==this.overlay)caption.prepend(this.overlay);}else if(caption.lastChild!==this.overlay)caption.append(this.overlay);
+            Object.assign(this.overlay.style,{position:'static',width:'auto',padding:'3px 8px',fontSize:(parseFloat(getComputedStyle(caption.querySelector('.ytp-caption-segment')??caption).fontSize)*this.controls.size/100)+'px',fontFamily:this.controls.font,fontWeight:String(this.controls.weight),color:this.controls.color,background:'transparent',lineHeight:'1.4'});
+            if(this.overlay.textContent!==text)this.overlay.textContent=text;this.overlay.hidden=false;return;
+        }
+        Object.assign(this.overlay.style,{position:'fixed',fontSize:(20*this.controls.size/100)+'px',fontFamily:this.controls.font,fontWeight:String(this.controls.weight),color:this.controls.color,background:this.controls.background+Math.round(this.controls.opacity*2.55).toString(16).padStart(2,'0')});
         const full = document.fullscreenElement;
         if (full instanceof HTMLElement && !(full instanceof HTMLVideoElement) && this.overlay.parentElement !== full)
             full.append(this.overlay);
@@ -121,19 +140,30 @@ export class SubtitleTranslator {
         this.overlay.textContent = !nativeVisible && source ? source + '\n' + text : text;
         this.overlay.hidden = false;
     }
-    private prefetch(texts:string[]):void{
+    private window(time:number,current?:string):string[]{
+        const pending=new Map(this.cache);
+        for(const text of this.inFlight.keys())pending.set(text,'');
+        const upcoming=captionWindow(this.timeline,time,pending);
+        if(current&&!pending.has(current)){const index=upcoming.indexOf(current);if(index>=0)upcoming.splice(index,1);upcoming.unshift(current);}
+        return upcoming.slice(0,Math.min(8,this.batchSize()));
+    }
+    private prefetch(texts:string[],urgent=false):void{
         const session=this.session;
         for(const text of texts)this.inFlight.set(text,session);
         void this.translate(texts).then(results=>{
             if(session!==this.session)return;
             if(results.length!==texts.length)throw new Error('字幕結果數量不符');
+            this.lastError = '';
             texts.forEach((text,index)=>{const value=results[index];if(value!==undefined)this.cache.set(text,value);});
             // Keep a bounded local cache; the worker also persists translated chunks.
             while(this.cache.size>2000){const first=this.cache.keys().next().value;if(first===undefined)break;this.cache.delete(first);}
-        }).catch(()=>{if(session===this.session)this.retryAfter=Date.now()+10000;})
-        .finally(()=>{for(const text of texts)if(this.inFlight.get(text)===session)this.inFlight.delete(text);});
+        }).catch(error=>{if(session===this.session){this.lastError=error instanceof Error&&error.message?error.message:'字幕翻譯失敗，稍後重試';this.retryAfter=Date.now()+10000;}})
+        .finally(()=>{if(urgent&&session===this.session)this.urgent=false;for(const text of texts)if(this.inFlight.get(text)===session)this.inFlight.delete(text);});
     }
     private tick(): void {
+        this.controls.attach();
+        this.controls.setStatus(Date.now()<this.retryAfter&&this.lastError?this.lastError:this.inFlight.size?'字幕翻譯中，等待服務回覆…':'字幕翻譯已啟用');
+        if(!this.controls.enabled||this.controls.mode==='original'){if(this.overlay)this.overlay.hidden=true;return;}
         const media = this.playback();
         if (!media) {
             const video = this.activeVideo;
@@ -148,21 +178,27 @@ export class SubtitleTranslator {
         const current = this.current();
         const timelineVideo=this.timelineVideo;
         if(timelineVideo&&this.timeline.length){
-            const enabled=this.track?this.track.mode!=='disabled':true;
+            const ccOff=this.isYouTubeWatch()&&document.querySelector('.ytp-subtitles-button')?.getAttribute('aria-pressed')==='false';
+            const enabled=(this.track?this.track.mode!=='disabled':true)&&!ccOff;
             if(!enabled||timelineVideo.paused||timelineVideo.ended||!timelineVideo.isConnected){if(this.overlay)this.overlay.hidden=true;return;}
             const cue=activeCaption(this.timeline,timelineVideo.currentTime);
             const translated=cue?this.cache.get(cue.text):undefined;
             if(translated)this.render(translated,timelineVideo);
-            else if(cue)this.render(Date.now()<this.retryAfter?'字幕翻譯失敗，稍後重試':'字幕預翻譯中…',timelineVideo);
+            else if(cue)this.render(Date.now()<this.retryAfter?(this.lastError||'字幕翻譯失敗，稍後重試'):'字幕預翻譯中…',timelineVideo);
             else if(this.overlay)this.overlay.hidden=true;
+            if(cue&&!translated&&!this.inFlight.has(cue.text)&&this.inFlight.size>0&&!this.urgent&&Date.now()>=this.retryAfter){
+                this.urgent=true;this.prefetch(this.window(timelineVideo.currentTime,cue.text),true);
+            }
             if(!this.inFlight.size&&Date.now()>=this.retryAfter){
-                // Do not hold the current subtitle behind a multi-batch lookahead.
-                const batch=cue&&!this.cache.has(cue.text)?[cue.text]:captionWindow(this.timeline,timelineVideo.currentTime,this.cache);
+                // Include upcoming cues immediately so a slow reply does not chase expired lines.
+                const batch=this.window(timelineVideo.currentTime, cue?.text);
                 if(batch.length)this.prefetch(batch);
             }
             return;
         }
         if (!current) {
+            const ccEnabled=document.querySelector('.ytp-subtitles-button')?.getAttribute('aria-pressed')==='true';
+            this.controls.setStatus(this.loading?'正在讀取字幕軌…':ccEnabled?'字幕待命中（目前片段無對白）':'尚未讀取到字幕，請確認 CC 已開啟');
             if (this.last) {
                 this.last = '';
                 this.revision++;
@@ -173,18 +209,26 @@ export class SubtitleTranslator {
         }
         const { text, video } = current;
         if (text !== this.last) {
+            const growing = this.last && text.startsWith(this.last);
             this.last = text;
             this.revision++;
-            if (this.overlay)
-                this.overlay.hidden = true;
+            if (growing && !/[.!?。！？]["')\]]*$/.test(text)) {
+                this.stableSince = Date.now() + 350;
+            } else {
+                this.stableSince = 0;
+                if (this.overlay)
+                    this.overlay.hidden = true;
+            }
         }
         const existing = this.cache.get(text);
         if (existing) {
             this.render(existing, video);
             return;
         }
-        if (this.inFlight.size > 0 || text.length > 12000 || Date.now() < this.retryAfter)
+        this.controls.setStatus(Date.now()<this.retryAfter?(this.lastError||'字幕翻譯失敗，稍後重試；請檢查服務設定'):'即時字幕翻譯中；字幕軌尚未載入，無法預讀');
+        if (this.inFlight.size > 0 || text.length > 12000 || Date.now() < this.retryAfter || Date.now() < this.stableSince)
             return;
+        this.lastStable = text;
         const revision = this.revision;
         const session = this.session;
         this.inFlight.set(text, session);
@@ -194,16 +238,20 @@ export class SubtitleTranslator {
             const result = results[0];
             if (!result)
                 return;
+            this.lastError = '';
             this.cache.set(text, result);
             if (this.cache.size > 300) {
                 const oldest = this.cache.keys().next().value;
                 if (oldest !== undefined)
                     this.cache.delete(oldest);
             }
-            if (this.revision === revision && this.last === text)
+            if (this.revision === revision && this.last === text || this.last.startsWith(text))
                 this.render(result, video);
-        }).catch(() => {
-            if (session === this.session) this.retryAfter = Date.now() + 30000;
+        }).catch(error => {
+            if (session === this.session) {
+                this.lastError = error instanceof Error && error.message ? error.message : '字幕翻譯失敗，稍後重試；請檢查服務設定';
+                this.retryAfter = Date.now() + 15000;
+            }
         }).finally(() => {
             if (this.inFlight.get(text) === session) this.inFlight.delete(text);
         });

@@ -81,3 +81,11 @@ worker 翻譯訊息可指定 subtitle 優先級。engine 保留單一 writer、�
 `ImageTranslator` 只觀察圖片與可見區域。每張長圖按最多 1800 像素高度切塊，編碼前再次確認可見性；逐塊送入 `image.translate`，成功後以純文字與標準化座標疊加。原圖 DOM 不改寫，無字圖片不顯示浮層。影片頁不啟動自動 OCR。
 
 跨來源像素讀取由 worker 的 `image.read` 驗證來源權限、圖片 MIME、8 MB 上限與無 Cookie／無 Redirect 下載。`image.translate` 驗證圖片資料與模型回應，使用與文字相同的 engine 佇列、限速與持久快取。字幕維持高優先權；圖片逐塊提交，不堆積整章請求。資料與設定變更使用 epoch 丟棄過期回應。
+
+### 播放器字幕控制
+
+`SubtitleControls` 管理播放器按鈕、此頁面的顯示設定與事件生命週期；`SubtitleTranslator` 管理時間軸、請求及字幕內容。停用或僅原文模式在 render 邊界攔截延遲結果。字幕文字與父節點未變時不重寫，設定樣式只在值改變時更新。控制項 dispose 時透過 AbortController 清理外部事件，還原播放器字幕樣式。
+
+圖片區塊編碼成功後保留 Canvas 至該筆請求完成，僅在本機取樣回傳文字區域的背景主色。`image-style.ts` 負責取色、對比字色與可測試的字級選擇；圖片控制器負責 Canvas 及 DOM。結果只保留少量配色資料，不長期保留像素。無法取樣時沿用預設配色。
+
+字幕首批即提交目前與後續字幕，每批最多 min(8, batchSize) 句，避免連續追趕過期字幕及單次 RPC 被拆成多批才回覆。進行中句子不重送。仍共用 worker 限速佇列；已發出的其他 API 請求不會被中斷。
