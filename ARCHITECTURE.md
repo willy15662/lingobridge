@@ -89,3 +89,8 @@ worker 翻譯訊息可指定 subtitle 優先級。engine 保留單一 writer、�
 圖片區塊編碼成功後保留 Canvas 至該筆請求完成，僅在本機取樣回傳文字區域的背景主色。`image-style.ts` 負責取色、對比字色與可測試的字級選擇；圖片控制器負責 Canvas 及 DOM。結果只保留少量配色資料，不長期保留像素。無法取樣時沿用預設配色。
 
 字幕首批即提交目前與後續字幕，每批最多 min(8, batchSize) 句，避免連續追趕過期字幕及單次 RPC 被拆成多批才回覆。進行中句子不重送。仍共用 worker 限速佇列；已發出的其他 API 請求不會被中斷。
+
+針對 YouTube 自動產生之滾動字幕（ASR Roll-up）：
+- `captions.info` 在 MAIN world 攔截播放器發出的 `/api/timedtext` 請求（含 `pot` 簽章），若啟動時尚未捕獲，會呼叫 `player.setOption('captions', 'reload', true)` 觸發播放器重取字幕軌，確保穩定載入完整 JSON3 時間軸。
+- `parseCaptionTimeline` 自動裁切重疊的滾動時間窗，並將未帶句尾標點的短碎片合併為完整句子。
+- `SubtitleControls` 解除 YouTube `.caption-window` 的固定 `height` 與 `overflow: hidden`，避免附加於下方的譯文被容器裁切隱藏。

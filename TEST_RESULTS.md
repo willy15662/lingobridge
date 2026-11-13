@@ -1,6 +1,6 @@
 # 測試結果
 
-更新日期：2026-11-11。
+更新日期：2026-11-13。
 
 ## 單元與邊界測試（`npm run check`）
 
@@ -92,10 +92,13 @@ TypeScript、Build 與 95 項測試通過。新增 tests/subtitle-ui.e2e.mjs 驗
 - 圖片背景取色、透明像素備援與中英文換行量測有新增單測；Media E2E 加入深色背景文字對比檢查，尚待一般終端機執行。
 - 已重建 `local-bilingual-reading.zip` 並通過 CRC 檢查。圖片仍使用既有視覺模型，不代表線上 OCR 準確度或 API 延遲已驗證。
 
-## 0.3.2 字幕啟動與字級修正
+## 0.3.2 字幕啟動、字級與 YouTube 滾動字幕修正
 
 - 新增延遲回覆重現測試：修正前首批只有當前句，測試失敗；修正後首批包含後續字幕，回覆時能依目前播放時間顯示。
-- 首批與跳轉窗口最多 8 句，遵守使用者 batchSize，排除處理中字幕。字幕面板顯示載入／服務等待／CC 狀態。
+- 首批與跳轉窗口最多 8 句，遵守使用者 batchSize，排除處理中字幕。字幕面板顯示載入／服務等待／無對白待命／CC 狀態。
 - 移除原字幕 100% 字級覆蓋；保留原生字級，譯文字級依原字幕計算。僅譯文模式不再把量測字級設為 0。
+- 修正 YouTube 滾動字幕框（`.caption-window`）因固定高度與 `overflow: hidden` 裁切譯文的問題。
+- 修正 YouTube `/api/timedtext` 因缺少 `pot` 簽章回傳空內容的問題：透過 MAIN world 攔截與 `player.setOption('captions', 'reload', true)` 觸發重載，穩定取得完整 JSON3 時間軸，並自動合併 ASR 短碎片為完整句子。
+- `node tests/subtitle-ui.e2e.mjs` 與真實 YouTube 影片（`jNr_6eINleM`）瀏覽器端對端驗證通過。
 - `npm run check` 通過：97 項測試、TypeScript、Build、215 個產物檢查。
 - 字幕 UI E2E 新增 28px 原生字幕回歸檢查，但 Chromium 在此環境仍因 Operation not permitted 無法啟動。真實 YouTube 及線上模型延遲尚待驗證。
